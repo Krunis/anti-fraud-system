@@ -19,10 +19,8 @@ func NewSyncProducer(addrs []string) (*SyncProducer, error) {
 	cfg.Producer.Retry.Max = 30
 	cfg.Producer.Retry.Backoff = 10 * time.Millisecond
 
-	// Для SyncProducer
 	cfg.Producer.Return.Successes = true
 
-	// Для транзакционного exactly‑once (через перезапуск)
 	cfg.Producer.Transaction.ID = "fraud-txn-0001"
 	cfg.Producer.Transaction.Retry.Max = 10
 	cfg.Producer.Transaction.Retry.Backoff = 100 * time.Millisecond
