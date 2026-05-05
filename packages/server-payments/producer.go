@@ -1,9 +1,12 @@
 package serverpayments
 
 import (
+	"encoding/json"
+	"log"
 	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
 type SyncProducer struct {
@@ -31,4 +34,43 @@ func NewSyncProducer(addrs []string) (*SyncProducer, error) {
 	}
 
 	return &SyncProducer{SyncProducer: prod}, nil
+}
+
+func (s *ServerPayments) ProduceToKafka(topic string, payment *common.PaymentEvent) error{
+	if err := s.syncProducer.BeginTxn(); err != nil{
+		return err
+	}
+	
+	commited := false
+
+	defer func(){
+		if !commited{
+			if err := s.syncProducer.AbortTxn(); err != nil{
+				log.Printf("abort Kafka transaction failed: %s", err)
+			}
+		}
+	}()
+
+	value, err := json.Marshal(payment)
+	if err != nil{
+		return err
+	}
+
+	msg := &sarama.ProducerMessage{
+		Topic: topic,
+		Key: sarama.StringEncoder(payment.EventID),
+		Value: sarama.ByteEncoder(value),
+	}
+
+	if _, _, err := s.syncProducer.SendMessage(msg); err != nil{
+		return err
+	}
+
+	if err := s.syncProducer.CommitTxn(); err != nil{
+		return err
+	}
+
+	commited = true
+
+	return nil
 }

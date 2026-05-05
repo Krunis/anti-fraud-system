@@ -17,6 +17,8 @@ func NewConsumer(addrs []string) (*Consumer, error){
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Offsets.AutoCommit = struct{Enable bool; Interval time.Duration}{Enable: false}
 
+	config.Consumer.IsolationLevel = sarama.ReadCommitted
+	
 	consumerGroup, err := sarama.NewConsumerGroup(addrs, "A", config)
 	if err != nil{
 		return nil, err

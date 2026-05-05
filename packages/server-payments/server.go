@@ -70,6 +70,11 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
+		if err := s.ProduceToKafka("", payment); err != nil{
+			http.Error(w, "server unavailable", http.StatusInternalServerError)
+			return
+		}
 		
+
 	}
 } 
