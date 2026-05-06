@@ -8,7 +8,6 @@ import (
 
 type Consumer struct{
 	sarama.ConsumerGroup
-	
 }
 
 func NewConsumer(addrs []string) (*Consumer, error){
@@ -25,4 +24,18 @@ func NewConsumer(addrs []string) (*Consumer, error){
 	}
 
 	return &Consumer{ConsumerGroup: consumerGroup}, nil
+}
+
+func (a *AntiFraud) Setup(session sarama.ConsumerGroupSession) error{
+	return nil
+}
+
+func (a *AntiFraud) Cleanup(session sarama.ConsumerGroupSession) error{
+	return nil
+}
+
+func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for msg := range claim.Messages(){
+		session.Commit()
+	}
 }
