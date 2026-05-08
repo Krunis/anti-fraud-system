@@ -64,17 +64,18 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		defer r.Body.Close()
 
 		if err := ValidatePaymentEvent(payment); err != nil{
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		if err := s.ProduceToKafka("", payment); err != nil{
+		if err := s.ProduceToKafka("payment-events", payment); err != nil{
 			http.Error(w, "server unavailable", http.StatusInternalServerError)
 			return
 		}
 		
-
+		w.WriteHeader(http.StatusCreated)
 	}
 } 

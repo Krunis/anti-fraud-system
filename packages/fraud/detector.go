@@ -9,3 +9,11 @@ func (a *AntiFraud) Start() error{
 		
 	}
 }
+
+func (a *AntiFraud) checkInRedis(accountId string) (bool, error){
+	
+}
+
+func (a *AntiFraud) Detect() (bool, error){
+	
+}

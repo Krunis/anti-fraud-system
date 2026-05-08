@@ -1,9 +1,11 @@
 package fraud
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
 type Consumer struct{
@@ -36,6 +38,16 @@ func (a *AntiFraud) Cleanup(session sarama.ConsumerGroupSession) error{
 
 func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages(){
+		payment := &common.PaymentEvent{}
+
+		json.Unmarshal(msg.Value, &payment)
+		
+		a.checkInRedis()
+
+		session.MarkMessage(msg, "")
+
 		session.Commit()
+
+		
 	}
-}
+}		
