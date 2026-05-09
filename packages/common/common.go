@@ -1,6 +1,13 @@
 package common
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/redis/go-redis/v9"
+)
 
 type Lifecycle struct {
 	Ctx context.Context
@@ -42,4 +49,21 @@ type PaymentEvent struct {
 	Payee *PayeeType
 
 	Context *ContextData
+}
+
+func ConnectToRedis(ctx context.Context) (*redis.Client, error) {
+	redisPort := os.Getenv("REDIS_PORT")
+
+	redisDB := redis.NewClient(&redis.Options{
+		Addr: fmt.Sprintf("redis:%s", redisPort),
+		DB:   0,
+	})
+
+	if err := redisDB.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect Redis db: %s", err)
+	}
+
+	log.Println("Connected to Redis")
+
+	return redisDB, nil
 }
