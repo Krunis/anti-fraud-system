@@ -42,8 +42,13 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 
 		json.Unmarshal(msg.Value, &payment)
 		
-		a.checkInRedis()
+		if err := a.refreshInRedis(payment); err != nil{
+			return err
+		}
 
+		if err := a.checkFromRedis(payment); err != nil{
+			return err
+		}
 		session.MarkMessage(msg, "")
 
 		session.Commit()
