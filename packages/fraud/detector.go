@@ -13,8 +13,15 @@ var (
 	prefixFailedLogins = "failed_logins:"
 	prefixPaymentCountries = "payment_countries:"
 	prefixPaymentDevices = "payment_devices:"
-	prefixPpaymentAmounts = "payment_amounts:"
+	prefixPaymentAmounts = "payment_amounts:"
 )
+
+type paymentStats struct{
+	failedLogins int
+	paymentCountries []string
+	paymentDevices []string
+	paymentAmounts []string
+}
 
 type AntiFraud struct {
 	consumer *Consumer
@@ -51,9 +58,9 @@ func (a *AntiFraud) refreshInRedis(payment *common.PaymentEvent) error {
 	pipeline.SAdd(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentDevices), payment.Context.DeviceID)
 	pipeline.Expire(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentDevices), time.Minute * 5)
 
-	pipeline.LPush(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPpaymentAmounts), payment.Transaction.Amount)
-	pipeline.Expire(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPpaymentAmounts), time.Minute * 5)
-	//???? err
+	pipeline.LPush(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentAmounts), payment.Transaction.Amount)
+	pipeline.Expire(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentAmounts), time.Minute * 5)
+	
 	cmds, err := pipeline.Exec(a.lifecycle.Ctx)
 	if err != nil{
 		return err
@@ -67,9 +74,33 @@ func (a *AntiFraud) refreshInRedis(payment *common.PaymentEvent) error {
 	return nil
 }
 
-func (a *AntiFraud) checkFromRedis(payment *common.PaymentEvent) error{
-	
+func (a *AntiFraud) checkFromRedis(payment *common.PaymentEvent) (*paymentStats, error){
+	pipeline := a.redisDB.Pipeline()
+
+	failedLogins, err := pipeline.Get(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixFailedLogins)).Int()
+	if err != nil{
+		log.Printf("Wrong type in Redis. Key: %s", fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixFailedLogins))
+	}
+
+	paymentCountries := pipeline.SMembers(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentCountries)).Val()
+
+	paymentDevices := pipeline.SMembers(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentDevices)).Val()
+
+	paymentAmounts := pipeline.LRange(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentAmounts), 0, -1).Val()
+
+	_, err = pipeline.Exec(a.lifecycle.Ctx)
+	if err != nil && err != redis.Nil{
+		return nil, err
+	}
+
+	return &paymentStats{
+		failedLogins: failedLogins,
+		paymentCountries: paymentCountries,
+		paymentDevices: paymentDevices,
+		paymentAmounts: paymentAmounts,
+	}, nil
 }
+
 
 func (a *AntiFraud) Detect() (bool, error) {
 
