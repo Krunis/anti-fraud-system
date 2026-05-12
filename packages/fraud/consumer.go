@@ -8,51 +8,84 @@ import (
 	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
-type Consumer struct{
+type Consumer struct {
 	sarama.ConsumerGroup
 }
 
-func NewConsumer(addrs []string) (*Consumer, error){
+func NewConsumer(addrs []string) (*Consumer, error) {
 	config := sarama.NewConfig()
 
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
-	config.Consumer.Offsets.AutoCommit = struct{Enable bool; Interval time.Duration}{Enable: false}
+	config.Consumer.Offsets.AutoCommit = struct {
+		Enable   bool
+		Interval time.Duration
+	}{Enable: false}
 
 	config.Consumer.IsolationLevel = sarama.ReadCommitted
-	
+
 	consumerGroup, err := sarama.NewConsumerGroup(addrs, "A", config)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 
 	return &Consumer{ConsumerGroup: consumerGroup}, nil
 }
 
-func (a *AntiFraud) Setup(session sarama.ConsumerGroupSession) error{
+func (a *AntiFraud) Setup(session sarama.ConsumerGroupSession) error {
 	return nil
 }
 
-func (a *AntiFraud) Cleanup(session sarama.ConsumerGroupSession) error{
+func (a *AntiFraud) Cleanup(session sarama.ConsumerGroupSession) error {
 	return nil
 }
 
 func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for msg := range claim.Messages(){
+	for msg := range claim.Messages() {
 		payment := &common.PaymentEvent{}
 
 		json.Unmarshal(msg.Value, &payment)
-		
-		if err := a.refreshInRedis(payment); err != nil{
+
+		if err := a.refreshInRedis(payment); err != nil {
 			return err
 		}
 
-		if err := a.checkFromRedis(payment); err != nil{
+		paymentStats, err := a.getStatsFromRedis(payment)
+		if err != nil {
 			return err
 		}
+
+		score := considerScore(paymentStats)
+
+		if score > 120 {
+			ban
+		}
+
 		session.MarkMessage(msg, "")
 
 		session.Commit()
 
-		
 	}
-}		
+}
+
+func considerScore(paymentStats *PaymentStats) (score int) {
+	score = 0
+
+	if paymentStats.failedLogins > 5 {
+		score += paymentStats.failedLogins * 10
+	}
+	if len(paymentStats.paymentCountries) > 3 {
+		score += len(paymentStats.paymentCountries) * 15
+	}
+	if len(paymentStats.paymentDevices) > 3 {
+		score += len(paymentStats.paymentDevices) * 15
+	}
+
+	sumAmounts := 0.0
+	for _, el := range paymentStats.paymentAmounts {
+		sumAmounts += el
+	}
+
+	score += (int(sumAmounts) % 1000000) * 15
+
+	return score
+}

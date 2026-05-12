@@ -3,6 +3,7 @@ package fraud
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
@@ -16,11 +17,11 @@ var (
 	prefixPaymentAmounts = "payment_amounts:"
 )
 
-type paymentStats struct{
+type PaymentStats struct{
 	failedLogins int
 	paymentCountries []string
 	paymentDevices []string
-	paymentAmounts []string
+	paymentAmounts []float64
 }
 
 type AntiFraud struct {
@@ -74,33 +75,49 @@ func (a *AntiFraud) refreshInRedis(payment *common.PaymentEvent) error {
 	return nil
 }
 
-func (a *AntiFraud) checkFromRedis(payment *common.PaymentEvent) (*paymentStats, error){
+func (a *AntiFraud) getStatsFromRedis(payment *common.PaymentEvent) (*PaymentStats, error){
 	pipeline := a.redisDB.Pipeline()
 
-	failedLogins, err := pipeline.Get(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixFailedLogins)).Int()
-	if err != nil{
-		log.Printf("Wrong type in Redis. Key: %s", fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixFailedLogins))
-	}
+	failedLogins := pipeline.Get(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixFailedLogins))
 
-	paymentCountries := pipeline.SMembers(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentCountries)).Val()
+	paymentCountries := pipeline.SMembers(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentCountries))
 
-	paymentDevices := pipeline.SMembers(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentDevices)).Val()
+	paymentDevices := pipeline.SMembers(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentDevices))
 
-	paymentAmounts := pipeline.LRange(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentAmounts), 0, -1).Val()
+	paymentAmounts := pipeline.LRange(a.lifecycle.Ctx, fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixPaymentAmounts), 0, -1)
 
-	_, err = pipeline.Exec(a.lifecycle.Ctx)
+	_, err := pipeline.Exec(a.lifecycle.Ctx)
 	if err != nil && err != redis.Nil{
 		return nil, err
 	}
 
-	return &paymentStats{
-		failedLogins: failedLogins,
-		paymentCountries: paymentCountries,
-		paymentDevices: paymentDevices,
-		paymentAmounts: paymentAmounts,
+	failedLoginsInt, err := failedLogins.Int()
+	if err != nil{
+		log.Printf("Wrong type in Redis. Key: %s", fmt.Sprintf("fraud:%s%s", payment.Payer.AccountID, prefixFailedLogins))
+	}
+
+	return &PaymentStats{
+		failedLogins: failedLoginsInt,
+		paymentCountries: paymentCountries.Val(),
+		paymentDevices: paymentDevices.Val(),
+		paymentAmounts: stringSliceToFloat64(paymentAmounts.Val()),
 	}, nil
 }
 
+func stringSliceToFloat64(slice []string) []float64{
+	intSlice := []float64{}
+
+	for _, el := range slice{
+		intEl, err := strconv.Atoi(el)
+		if err != nil{
+			log.Printf("Wrong type in slice: %s", slice)
+		}
+
+		intSlice = append(intSlice, float64(intEl))
+	}
+
+	return intSlice
+}
 
 func (a *AntiFraud) Detect() (bool, error) {
 
