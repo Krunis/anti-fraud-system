@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"github.com/redis/go-redis/v9"
 )
 
 type ServerPayments struct{
@@ -15,6 +16,8 @@ type ServerPayments struct{
 	address string
 
 	httpServer *http.Server
+
+	redisDB *common.Redis
 
 	syncProducer *SyncProducer
 
@@ -35,6 +38,11 @@ func NewServerPayments(address string) *ServerPayments{
 
 func (s *ServerPayments) Start() error{
 	lis, err := net.Listen("tcp", s.address)
+	if err != nil{
+		return err
+	}
+
+	s.redisDB, err = common.ConnectToRedis(s.lifecycle.Ctx)
 	if err != nil{
 		return err
 	}
@@ -70,6 +78,8 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+
+		if s.redisDB.check
 
 		if err := s.ProduceToKafka("payment-events", payment); err != nil{
 			http.Error(w, "server unavailable", http.StatusInternalServerError)

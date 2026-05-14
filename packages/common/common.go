@@ -67,3 +67,9 @@ func ConnectToRedis(ctx context.Context) (*redis.Client, error) {
 
 	return redisDB, nil
 }
+
+func (r *Redis) checkBan(ctx context.Context, userID string) bool{
+	val, err := r.Exists(ctx, fmt.Sprintf("fraud:ban:%s", userID)).Result()
+
+	return err == nil && val == 1
+}

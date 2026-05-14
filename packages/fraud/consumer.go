@@ -45,11 +45,11 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 
 		json.Unmarshal(msg.Value, &payment)
 
-		if err := a.refreshInRedis(payment); err != nil {
+		if err := a.refreshInRedis(a.lifecycle.Ctx, payment); err != nil {
 			return err
 		}
 
-		paymentStats, err := a.getStatsFromRedis(payment)
+		paymentStats, err := a.getStatsFromRedis(a.lifecycle.Ctx, payment)
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,9 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 		score := considerScore(paymentStats)
 
 		if score > 120 {
-			ban
+			if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil{
+				return err
+			}
 		}
 
 		session.MarkMessage(msg, "")
