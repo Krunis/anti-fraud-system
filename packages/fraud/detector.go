@@ -28,7 +28,7 @@ type PaymentStats struct{
 type AntiFraud struct {
 	consumer *Consumer
 
-	redisDB *redis.Client
+	redisDB *common.Redis
 
 	lifecycle common.Lifecycle
 }

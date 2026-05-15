@@ -8,7 +8,6 @@ import (
 	"net/http"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
-	"github.com/redis/go-redis/v9"
 )
 
 type ServerPayments struct{
@@ -79,7 +78,10 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		if s.redisDB.check
+		if s.redisDB.CheckBan(r.Context(), payment.Payer.AccountID){
+			http.Error(w, "banned", http.StatusForbidden)
+			return
+			}
 
 		if err := s.ProduceToKafka("payment-events", payment); err != nil{
 			http.Error(w, "server unavailable", http.StatusInternalServerError)

@@ -51,7 +51,11 @@ type PaymentEvent struct {
 	Context *ContextData
 }
 
-func ConnectToRedis(ctx context.Context) (*redis.Client, error) {
+type Redis struct {
+	*redis.Client
+}
+
+func ConnectToRedis(ctx context.Context) (*Redis, error) {
 	redisPort := os.Getenv("REDIS_PORT")
 
 	redisDB := redis.NewClient(&redis.Options{
@@ -65,10 +69,10 @@ func ConnectToRedis(ctx context.Context) (*redis.Client, error) {
 
 	log.Println("Connected to Redis")
 
-	return redisDB, nil
+	return &Redis{Client: redisDB}, nil
 }
 
-func (r *Redis) checkBan(ctx context.Context, userID string) bool{
+func (r *Redis) CheckBan(ctx context.Context, userID string) bool{
 	val, err := r.Exists(ctx, fmt.Sprintf("fraud:ban:%s", userID)).Result()
 
 	return err == nil && val == 1
