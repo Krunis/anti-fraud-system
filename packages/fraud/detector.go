@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/redis/go-redis/v9"
 )
@@ -30,6 +31,8 @@ type AntiFraud struct {
 
 	redisDB *common.Redis
 
+	clickHouse *common.CHWriter
+
 	lifecycle common.Lifecycle
 }
 
@@ -37,6 +40,11 @@ func (a *AntiFraud) Start() error {
 	var err error
 
 	a.redisDB, err = common.ConnectToRedis(a.lifecycle.Ctx)
+	if err != nil{
+		return err
+	}
+
+	a.clickHouse, err = common.NewClickhouseWriter("localhost", 19000, "", "", "")
 	if err != nil{
 		return err
 	}
