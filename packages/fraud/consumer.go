@@ -45,6 +45,8 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 
 		json.Unmarshal(msg.Value, &payment)
 
+		a.sendInClickHouse()
+
 		if err := a.refreshInRedis(a.lifecycle.Ctx, payment); err != nil {
 			return err
 		}

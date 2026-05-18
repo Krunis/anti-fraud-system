@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/redis/go-redis/v9"
 )

@@ -41,7 +41,9 @@ type ContextData struct {
 
 type PaymentEvent struct {
 	EventID   string
+	
 	EventTime string
+
 	Direction string
 
 	Transaction *TransactionType
@@ -58,8 +60,8 @@ type Redis struct {
 }
 
 type CHWriter struct {
-	conn      clickhouse.Conn
-	tableName string
+	Conn      clickhouse.Conn
+	TableName string
 }
 
 
@@ -107,18 +109,25 @@ func NewClickhouseWriter(host string, port uint16, database, table, user string)
 	}
 	//edit db.table()
 	if err := conn.Exec(ctx, `
-                    CREATE TABLE IF NOT EXISTS rotator.statistics
+                    CREATE TABLE IF NOT EXISTS payments.fraud
                     (
-                        ts Timestamp,
-                        country Nullable(FixedString(2)),
-                        os Nullable(String),
-                        browser Nullable(String),
-                        campaign_id UInt32 default 0,
-                        requests Int64 default 0,
-                        impressions Int64 default 0
+                        event_id String,
+                        event_time Time,
+                        direction String,
+                        amount UInt32,
+                        currency FixedString(3) default 0,
+                        type String default 0,
+                        account_id Int64 default 0,
+						merchant_id String,
+						merchant_name String,
+						country FixedString(3),
+						channel String,
+						device_id String,
+						user_agent Nullable(String),
+						ip String
                     )
                     ENGINE = MergeTree()
-                    ORDER BY (ts, campaign_id)
+                    ORDER BY (event_time, account_id)
                     `); err != nil{
                         return nil, err
                     }
@@ -130,5 +139,5 @@ func NewClickhouseWriter(host string, port uint16, database, table, user string)
 		return nil, err
 	}
 
-	return &writer{conn: conn, tableName: table}, nil
+	return &CHWriter{conn: conn, tableName: table}, nil
 }
