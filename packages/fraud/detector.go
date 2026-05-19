@@ -31,11 +31,24 @@ type AntiFraud struct {
 	redisDB *common.Redis
 
 	clickHouse *common.CHWriter
+	paymentCh chan *common.PaymentEvent
 
 	lifecycle common.Lifecycle
 }
 
-func (a *AntiFraud) Start() error {
+func NewAntiFraud() *AntiFraud{
+	ctx, cancel := context.WithCancel(context.Background())
+
+	return &AntiFraud{
+		paymentCh: make(chan *common.PaymentEvent, 1000),
+		lifecycle: common.Lifecycle{
+			Ctx: ctx,
+			Cancel: cancel,
+		},
+	}
+}
+
+func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 	var err error
 
 	a.redisDB, err = common.ConnectToRedis(a.lifecycle.Ctx)
@@ -43,13 +56,13 @@ func (a *AntiFraud) Start() error {
 		return err
 	}
 
-	a.clickHouse, err = common.NewClickhouseWriter("localhost", 19000, "", "", "")
+	a.clickHouse, err = common.NewClickhouseWriter("localhost", 19000, databaseCH, tableCH, userCH)
 	if err != nil{
 		return err
 	}
 
 	if err = a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
-
+		log.Printf("Error while consuming: %s", err)
 	}
 }
 

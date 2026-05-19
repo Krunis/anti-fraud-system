@@ -116,15 +116,16 @@ func NewClickhouseWriter(host string, port uint16, database, table, user string)
                         direction String,
                         amount UInt32,
                         currency FixedString(3) default 0,
-                        type String default 0,
+                        transaction_type String default 0,
                         account_id Int64 default 0,
 						merchant_id String,
 						merchant_name String,
 						country FixedString(3),
 						channel String,
 						device_id String,
-						user_agent Nullable(String),
-						ip String
+						ip String,
+						user_agent Nullable(String)
+						
                     )
                     ENGINE = MergeTree()
                     ORDER BY (event_time, account_id)

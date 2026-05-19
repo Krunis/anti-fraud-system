@@ -2,6 +2,7 @@ package fraud
 
 import (
 	"encoding/json"
+	"log"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -40,34 +41,47 @@ func (a *AntiFraud) Cleanup(session sarama.ConsumerGroupSession) error {
 }
 
 func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
-	for msg := range claim.Messages() {
-		payment := &common.PaymentEvent{}
+	for {
+		select {
+		case msg, ok := <-claim.Messages():
+			if !ok {
+				return nil
+			}
+			payment := &common.PaymentEvent{}
 
-		json.Unmarshal(msg.Value, &payment)
+			json.Unmarshal(msg.Value, &payment)
 
-		a.sendInClickHouse()
+			a.paymentCh <- payment
 
-		if err := a.refreshInRedis(a.lifecycle.Ctx, payment); err != nil {
-			return err
-		}
-
-		paymentStats, err := a.getStatsFromRedis(a.lifecycle.Ctx, payment)
-		if err != nil {
-			return err
-		}
-
-		score := considerScore(paymentStats)
-
-		if score > 120 {
-			if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil{
+			if err := a.refreshInRedis(a.lifecycle.Ctx, payment); err != nil {
 				return err
 			}
+
+			paymentStats, err := a.getStatsFromRedis(a.lifecycle.Ctx, payment)
+			if err != nil {
+				return err
+			}
+
+			score := considerScore(paymentStats)
+
+			score += a.aggrFromClickHouse()
+
+			if score > 120 {
+				if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil {
+					return err
+				}
+			}
+
+			session.MarkMessage(msg, "")
+
+			session.Commit()
+
+		case <-session.Context().Done():
+			log.Println("Session context done, committing and exiting")
+
+            session.Commit()
+            return nil
 		}
-
-		session.MarkMessage(msg, "")
-
-		session.Commit()
-
 	}
 }
 
