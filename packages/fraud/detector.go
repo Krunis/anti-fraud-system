@@ -64,6 +64,8 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 	if err = a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
 		log.Printf("Error while consuming: %s", err)
 	}
+
+	return nil
 }
 
 func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentEvent) error {

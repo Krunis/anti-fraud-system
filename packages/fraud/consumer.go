@@ -64,8 +64,6 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 
 			score := considerScore(paymentStats)
 
-			score += a.aggrFromClickHouse()
-
 			if score > 120 {
 				if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil {
 					return err
