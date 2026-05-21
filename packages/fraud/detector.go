@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
@@ -32,6 +33,7 @@ type AntiFraud struct {
 
 	clickHouse *common.CHWriter
 	paymentCh chan *common.PaymentEvent
+	paymentChMutex sync.RWMutex
 
 	lifecycle common.Lifecycle
 }

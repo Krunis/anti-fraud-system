@@ -112,7 +112,7 @@ func NewClickhouseWriter(host string, port uint16, database, table, user string)
                     CREATE TABLE IF NOT EXISTS payments.fraud
                     (
                         event_id String,
-                        event_time Time,
+                        event_time DateTime,
                         direction String,
                         amount UInt32,
                         currency FixedString(3) default 0,
