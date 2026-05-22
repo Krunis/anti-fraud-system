@@ -3,6 +3,7 @@ package serverpayments
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ type ServerPayments struct{
 	address string
 
 	httpServer *http.Server
+mux *http.ServeMux
 
 	redisDB *common.Redis
 
@@ -47,10 +49,16 @@ func (s *ServerPayments) Start() error{
 	}
 
 	s.httpServer = &http.Server{}
+	s.mux.HandleFunc("/payment/add", s.paymentHandler)
 
-	if err := s.httpServer.Serve(lis); err != nil{
+	s.httpServer.Handler = s.mux
+
+
+	if err := s.httpServer.Serve(lis); err != nil && err != http.ErrServerClosed{
 		return err
 	}
+
+
 }
 
 func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) {
@@ -91,3 +99,25 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusCreated)
 	}
 } 
+
+func (s *ServerPayments) Stop() error{
+	var errs []error
+
+	s.lifecycle.Cancel()
+
+	if s.redisDB != nil{
+		if err := s.redisDB.Close(); err != nil{
+			errs = append(errs, err)
+		}
+	}
+
+	if s.lis != nil{
+		if err := s.lis.Close(); err != nil{
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0{
+		return errors.Join(errs...)
+	}
+}

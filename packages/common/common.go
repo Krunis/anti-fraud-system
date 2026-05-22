@@ -88,7 +88,7 @@ func (r *Redis) CheckBan(ctx context.Context, userID string) bool{
 	return err == nil && val == 1
 }
 
-func NewClickhouseWriter(host string, port uint16, database, table, user string) (*CHWriter, error) {
+func NewClickHouseWriter(host string, port uint16, database, table, user string) (*CHWriter, error) {
 	ctx := context.Background()
 
 	conn, err := clickhouse.Open(&clickhouse.Options{

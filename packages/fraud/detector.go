@@ -58,7 +58,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 		return err
 	}
 
-	a.clickHouse, err = common.NewClickhouseWriter("localhost", 19000, databaseCH, tableCH, userCH)
+	a.clickHouse, err = common.NewClickHouseWriter("localhost", 19000, databaseCH, tableCH, userCH)
 	if err != nil{
 		return err
 	}
