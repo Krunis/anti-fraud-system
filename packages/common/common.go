@@ -140,5 +140,5 @@ func NewClickHouseWriter(host string, port uint16, database, table, user string)
 		return nil, err
 	}
 
-	return &CHWriter{conn: conn, tableName: table}, nil
+	return &CHWriter{Conn: conn, TableName: table}, nil
 }

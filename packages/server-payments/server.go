@@ -4,19 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
-type ServerPayments struct{
-	lis net.Listener
+type ServerPayments struct {
+	lis     net.Listener
 	address string
 
 	httpServer *http.Server
-mux *http.ServeMux
+	mux        *http.ServeMux
 
 	redisDB *common.Redis
 
@@ -25,26 +27,28 @@ mux *http.ServeMux
 	lifecycle *common.Lifecycle
 }
 
-func NewServerPayments(address string) *ServerPayments{
+func NewServerPayments(address string) *ServerPayments {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ServerPayments{
 		address: address,
 		lifecycle: &common.Lifecycle{
-			Ctx: ctx,
+			Ctx:    ctx,
 			Cancel: cancel,
 		},
 	}
 }
 
-func (s *ServerPayments) Start() error{
-	lis, err := net.Listen("tcp", s.address)
-	if err != nil{
+func (s *ServerPayments) Start() error {
+	var err error
+
+	s.redisDB, err = common.ConnectToRedis(s.lifecycle.Ctx)
+	if err != nil {
 		return err
 	}
 
-	s.redisDB, err = common.ConnectToRedis(s.lifecycle.Ctx)
-	if err != nil{
+	lis, err := net.Listen("tcp", s.address)
+	if err != nil {
 		return err
 	}
 
@@ -53,12 +57,11 @@ func (s *ServerPayments) Start() error{
 
 	s.httpServer.Handler = s.mux
 
-
-	if err := s.httpServer.Serve(lis); err != nil && err != http.ErrServerClosed{
+	if err := s.httpServer.Serve(lis); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 
-
+	return nil
 }
 
 func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) {
@@ -81,43 +84,57 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		defer r.Body.Close()
 
-		if err := ValidatePaymentEvent(payment); err != nil{
+		if err := ValidatePaymentEvent(payment); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		if s.redisDB.CheckBan(r.Context(), payment.Payer.AccountID){
+		if s.redisDB.CheckBan(r.Context(), payment.Payer.AccountID) {
 			http.Error(w, "banned", http.StatusForbidden)
 			return
-			}
+		}
 
-		if err := s.ProduceToKafka("payment-events", payment); err != nil{
+		if err := s.ProduceToKafka("payment-events", payment); err != nil {
 			http.Error(w, "server unavailable", http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusCreated)
 	}
-} 
+}
 
-func (s *ServerPayments) Stop() error{
+func (s *ServerPayments) Stop() error {
 	var errs []error
 
 	s.lifecycle.Cancel()
 
-	if s.redisDB != nil{
-		if err := s.redisDB.Close(); err != nil{
+	if s.httpServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+		defer cancel()
+
+		log.Println("Graceful shutdown...")
+		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+			err = fmt.Errorf("graceful shutdown failed: %s\n", err)
+			errs = append(errs, err)
+
+			if err = s.httpServer.Close(); err != nil {
+				log.Printf("Force close failed: %s\n", err)
+				err = fmt.Errorf("shutdown failed: %v, close failed: %v", err, err)
+				errs = append(errs, err)
+			}
+			err = fmt.Errorf("shutdown failed: %v, forced close", err)
+		}
+	}
+
+	if s.redisDB != nil {
+		if err := s.redisDB.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
 
-	if s.lis != nil{
-		if err := s.lis.Close(); err != nil{
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) > 0{
+	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}
+
+	return nil
 }
