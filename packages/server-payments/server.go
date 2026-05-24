@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
@@ -25,6 +26,8 @@ type ServerPayments struct {
 	syncProducer *SyncProducer
 
 	lifecycle *common.Lifecycle
+
+	stopOnce sync.Once
 }
 
 func NewServerPayments(address string) *ServerPayments {
@@ -106,31 +109,33 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 func (s *ServerPayments) Stop() error {
 	var errs []error
 
-	s.lifecycle.Cancel()
+	s.stopOnce.Do(func() {
+		s.lifecycle.Cancel()
 
-	if s.httpServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*15)
-		defer cancel()
+		if s.httpServer != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+			defer cancel()
 
-		log.Println("Graceful shutdown...")
-		if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
-			err = fmt.Errorf("graceful shutdown failed: %s\n", err)
-			errs = append(errs, err)
+			log.Println("Graceful shutdown...")
+			if err := s.httpServer.Shutdown(shutdownCtx); err != nil {
+				err = fmt.Errorf("graceful shutdown failed: %s\n", err)
+				errs = append(errs, err)
 
-			if err = s.httpServer.Close(); err != nil {
-				log.Printf("Force close failed: %s\n", err)
-				err = fmt.Errorf("shutdown failed: %v, close failed: %v", err, err)
+				if err = s.httpServer.Close(); err != nil {
+					log.Printf("Force close failed: %s\n", err)
+					err = fmt.Errorf("shutdown failed: %v, close failed: %v", err, err)
+					errs = append(errs, err)
+				}
+				err = fmt.Errorf("shutdown failed: %v, forced close", err)
+			}
+		}
+
+		if s.redisDB != nil {
+			if err := s.redisDB.Close(); err != nil {
 				errs = append(errs, err)
 			}
-			err = fmt.Errorf("shutdown failed: %v, forced close", err)
 		}
-	}
-
-	if s.redisDB != nil {
-		if err := s.redisDB.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
+	})
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)

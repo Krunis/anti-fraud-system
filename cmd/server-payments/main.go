@@ -27,10 +27,18 @@ func main() {
 	select{
 	case <-signCh:
 		log.Println("Signal received")
+		
+		stop(serv)
 	case err := <-errCh:
 		log.Printf("Error while working: %s", err)
+
+		stop(serv)
 	}
 
+	
+}
+
+func stop(serv *serverpayments.ServerPayments){
 	if err := serv.Stop(); err != nil{
 		log.Printf("Error while stopping: %s", err)
 	}

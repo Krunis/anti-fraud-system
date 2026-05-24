@@ -37,6 +37,8 @@ type AntiFraud struct {
 	paymentChMutex sync.RWMutex
 
 	lifecycle common.Lifecycle
+
+	stopOnce sync.Once
 }
 
 func NewAntiFraud() *AntiFraud {
@@ -65,7 +67,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 	}
 
 	if err = a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
-		log.Printf("Error while consuming: %s", err)
+		return err
 	}
 
 	return nil
@@ -156,7 +158,8 @@ func (a *AntiFraud) Detect() (bool, error) {
 func (a *AntiFraud) Stop() error {
 	var errs []error
 
-	a.lifecycle.Cancel()
+	a.stopOnce.Do(func(){
+		a.lifecycle.Cancel()
 
 	if a.consumer != nil {
 		if err := a.consumer.ConsumerGroup.Close(); err != nil {
@@ -175,6 +178,7 @@ func (a *AntiFraud) Stop() error {
 			errs = append(errs, err)
 		}
 	}
+	})
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)

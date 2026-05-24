@@ -54,11 +54,11 @@ func (a *AntiFraud) pollerToClickHouse() {
 			return
 		case <-timer.C:
 			batch, err := a.clickHouse.Conn.PrepareBatch(a.lifecycle.Ctx, `
-			INSERT INTO fraud.events (
+			INSERT INTO fraud.payments (
 										event_id, event_time, direction, 
 										amount, currency, transaction_type,
 										account_id, merchant_id, merchant_name, country,
-										channel, device_id, ip, user_agent`,
+										channel, device_id, ip, user_agent)`,
 									) 
 			if err != nil{
 				log.Printf("Failed to prepare batch: %s", err)
@@ -102,10 +102,10 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, payment *common.Paym
 	var exists bool
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
-	SELECT sum(amount)
-	FROM db.table
-	WHERE account_id=$1 AND event_time + INTERVAL 1 WEEK <= NOW()`,
-		payment.Payer.AccountID)
+											SELECT sum(amount)
+											FROM fraud.payments
+											WHERE account_id=$1 AND event_time + INTERVAL 1 WEEK <= NOW()`,
+												payment.Payer.AccountID)
 	if row.Err() != nil{
 		return 100000, row.Err()
 	}
@@ -116,11 +116,11 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, payment *common.Paym
 	}
 
 	row = a.clickHouse.Conn.QueryRow(ctx, `
-	SELECT EXISTS(
-		SELECT 1
-		FROM db.table
-		WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
-		payment.Payer.AccountID, payment.Payee.MerchantID)
+											SELECT EXISTS(
+												SELECT 1
+												FROM fraud.payments
+												WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
+												payment.Payer.AccountID, payment.Payee.MerchantID)
 	if row.Err() != nil{
 		return 100000, row.Err()
 	}
