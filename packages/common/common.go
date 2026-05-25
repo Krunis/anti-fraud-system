@@ -98,7 +98,6 @@ func NewClickHouseWriter(host string, port uint16, database, table, user string)
 			Username: user,
 			Password: "changeme",
 		},
-		Debug:           true,
 		DialTimeout:     time.Second,
 		MaxOpenConns:    10,
 		MaxIdleConns:    5,

@@ -35,6 +35,7 @@ func NewServerPayments(address string) *ServerPayments {
 
 	return &ServerPayments{
 		address: address,
+		mux: http.NewServeMux(),
 		lifecycle: &common.Lifecycle{
 			Ctx:    ctx,
 			Cancel: cancel,

@@ -58,3 +58,23 @@ services:
       - 3488:3488
     environment:
       CLICKHOUSE_URL: 'http://clickhouse:8123'
+
+  anti-fraud:
+    build: 
+      context: .
+      dockerfile: antifraud-dockerfile
+    environment:
+      REDIS_PORT: '6379'
+    depends_on:
+      - kafka
+      - redis
+      - clickhouse
+  server-payments:
+    build: 
+      context: .
+      dockerfile: serverpayments-dockerfile
+    environment:
+      REDIS_PORT: '6379'
+    depends_on:
+      - kafka
+      - redis

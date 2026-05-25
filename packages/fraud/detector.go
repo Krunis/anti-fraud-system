@@ -61,7 +61,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 		return err
 	}
 
-	a.clickHouse, err = common.NewClickHouseWriter("localhost", 19000, databaseCH, tableCH, userCH)
+	a.clickHouse, err = common.NewClickHouseWriter("clickhouse", 9000, databaseCH, tableCH, userCH)
 	if err != nil {
 		return err
 	}
@@ -151,9 +151,9 @@ func stringSliceToFloat64(slice []string) []float64 {
 	return intSlice
 }
 
-func (a *AntiFraud) Detect() (bool, error) {
+// func (a *AntiFraud) Detect() (bool, error) {
 
-}
+// }
 
 func (a *AntiFraud) Stop() error {
 	var errs []error

@@ -15,7 +15,7 @@ func main() {
 	errCh := make(chan error, 1)
 
 	go func ()  {
-		if err := fr.Start(); err != nil{
+		if err := fr.Start("fraud", "payments", "changeme"); err != nil{
 			errCh <- err
 	}
 	}()
