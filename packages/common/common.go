@@ -88,15 +88,15 @@ func (r *Redis) CheckBan(ctx context.Context, userID string) bool{
 	return err == nil && val == 1
 }
 
-func NewClickHouseWriter(host string, port uint16, database, table, user string) (*CHWriter, error) {
+func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWriter, error) {
 	ctx := context.Background()
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", host, port)},
 		Auth: clickhouse.Auth{
-			Database: database,
 			Username: user,
 			Password: "changeme",
+
 		},
 		DialTimeout:     time.Second,
 		MaxOpenConns:    10,
@@ -106,16 +106,23 @@ func NewClickHouseWriter(host string, port uint16, database, table, user string)
 	if err != nil {
 		return nil, err
 	}
-	//edit db.table()
+	
+	err = conn.Exec(ctx, `
+        CREATE DATABASE IF NOT EXISTS fraud
+    `)
+    if err != nil {
+        return nil, err
+    }
+
 	if err := conn.Exec(ctx, `
-                    CREATE TABLE IF NOT EXISTS payments.fraud
+                    CREATE TABLE IF NOT EXISTS fraud.payments
                     (
                         event_id String,
                         event_time DateTime,
                         direction String,
                         amount UInt32,
-                        currency FixedString(3) default 0,
-                        transaction_type String default 0,
+                        currency FixedString(3) default 'USD',
+                        transaction_type String default 'unknown',
                         account_id Int64 default 0,
 						merchant_id String,
 						merchant_name String,

@@ -45,6 +45,8 @@ func (a *AntiFraud) sendInClickHouse(ctx context.Context, payment *common.Paymen
 }
 
 func (a *AntiFraud) pollerToClickHouse() {
+	
+
 	timer := time.NewTimer(time.Second * 5)
 	defer timer.Stop()
 

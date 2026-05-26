@@ -15,12 +15,12 @@ type Consumer struct {
 
 func NewConsumer(addrs []string) (*Consumer, error) {
 	config := sarama.NewConfig()
-
+	
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Offsets.AutoCommit = struct {
 		Enable   bool
 		Interval time.Duration
-	}{Enable: false}
+	}{Enable: false, Interval: 1}
 
 	config.Consumer.IsolationLevel = sarama.ReadCommitted
 

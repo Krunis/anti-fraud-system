@@ -38,6 +38,7 @@ type AntiFraud struct {
 
 	lifecycle common.Lifecycle
 
+	wg       sync.WaitGroup
 	stopOnce sync.Once
 }
 
@@ -61,10 +62,17 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 		return err
 	}
 
-	a.clickHouse, err = common.NewClickHouseWriter("clickhouse", 9000, databaseCH, tableCH, userCH)
+	a.clickHouse, err = common.NewClickHouseWriter("clickhouse", 9000, tableCH, userCH)
 	if err != nil {
 		return err
 	}
+
+	a.consumer, err = NewConsumer([]string{"kafka:9092"})
+	if err != nil{
+		return err
+	}
+
+	a.wg.Go(a.pollerToClickHouse)
 
 	if err = a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
 		return err
@@ -158,26 +166,26 @@ func stringSliceToFloat64(slice []string) []float64 {
 func (a *AntiFraud) Stop() error {
 	var errs []error
 
-	a.stopOnce.Do(func(){
+	a.stopOnce.Do(func() {
 		a.lifecycle.Cancel()
 
-	if a.consumer != nil {
-		if err := a.consumer.ConsumerGroup.Close(); err != nil {
-			errs = append(errs, err)
+		if a.consumer != nil {
+			if err := a.consumer.ConsumerGroup.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
 
-	if a.clickHouse != nil {
-		if err := a.clickHouse.Conn.Close(); err != nil {
-			errs = append(errs, err)
+		if a.clickHouse != nil {
+			if err := a.clickHouse.Conn.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
 
-	if a.redisDB != nil{
-		if err := a.redisDB.Close(); err != nil{
-			errs = append(errs, err)
+		if a.redisDB != nil {
+			if err := a.redisDB.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
-	}
 	})
 
 	if len(errs) > 0 {
