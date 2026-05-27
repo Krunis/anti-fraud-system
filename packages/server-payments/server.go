@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -88,12 +89,15 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 		}
 		defer r.Body.Close()
 
+		log.Println(payment)
+		log.Println("хуй")
+
 		if err := ValidatePaymentEvent(payment); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		if s.redisDB.CheckBan(r.Context(), payment.Payer.AccountID) {
+		if s.redisDB.CheckBan(r.Context(), strconv.Itoa(int(payment.Payer.AccountID))) {
 			http.Error(w, "banned", http.StatusForbidden)
 			return
 		}

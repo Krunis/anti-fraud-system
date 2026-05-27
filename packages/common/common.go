@@ -17,42 +17,42 @@ type Lifecycle struct {
 }
 
 type TransactionType struct {
-	Amount   uint32
-	Currency string
-	Type     string
+	Amount   uint32 `json:"amount"`
+	Currency string `json:"currency"`
+	Type     string `json:"transaction_type"`
 }
 
 type PayerType struct {
-	AccountID string
+	AccountID int64 `json:"account_id"`
 }
 
 type PayeeType struct {
-	MerchantID   string
-	MerchantName string
-	Country      string
+	MerchantID   int64 `json:"merchant_id"`
+	MerchantName string `json:"merchant_name"`
+	Country      string `json:"country"`
 }
 
 type ContextData struct {
-	Channel   string
-	DeviceID  string
-	IP        string
-	UserAgent string
+	Channel   string `json:"channel"`
+	DeviceID  string `json:"device_id"`
+	IP        string `json:"ip"`
+	UserAgent string `json:"user-agent"`
 }
 
 type PaymentEvent struct {
-	EventID   string
+	EventID   string `json:"event_id"`
 	
-	EventTime string
+	EventTime string `json:"event_time"`
 
-	Direction string
+	Direction string `json:"direction"`
 
-	Transaction *TransactionType
+	Transaction *TransactionType `json:"transaction"`
 
-	Payer *PayerType
+	Payer *PayerType `json:"payer"`
 
-	Payee *PayeeType
+	Payee *PayeeType `json:"payee"`
 
-	Context *ContextData
+	Context *ContextData `json:"context"`
 }
 
 type Redis struct {
@@ -124,7 +124,7 @@ func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWrite
                         currency FixedString(3) default 'USD',
                         transaction_type String default 'unknown',
                         account_id Int64 default 0,
-						merchant_id String,
+						merchant_id Int64 default 0,
 						merchant_name String,
 						country FixedString(3),
 						channel String,

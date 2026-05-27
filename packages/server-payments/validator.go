@@ -91,7 +91,7 @@ func ValidatePaymentEvent(event *common.PaymentEvent) error {
     if event.Payer == nil {
         errors = append(errors, &ValidationError{Field: "Payer", Message: "cannot be nil"})
     } else {
-        if event.Payer.AccountID == "" {
+        if event.Payer.AccountID == 0 {
             errors = append(errors, &ValidationError{Field: "Payer.AccountID", Message: "cannot be empty"})
         }
     }
@@ -100,11 +100,9 @@ func ValidatePaymentEvent(event *common.PaymentEvent) error {
     if event.Payee == nil {
         errors = append(errors, &ValidationError{Field: "Payee", Message: "cannot be nil"})
     } else {
-        if event.Payee.MerchantID == "" {
+        if event.Payee.MerchantID == 0 {
             errors = append(errors, &ValidationError{Field: "Payee.MerchantID", Message: "cannot be empty"})
-        } else if len(event.Payee.MerchantID) > 64 {
-            errors = append(errors, &ValidationError{Field: "Payee.MerchantID", Message: "exceeds maximum length of 64 characters"})
-        }
+        } 
 
         if len(event.Payee.MerchantName) > 128 {
             errors = append(errors, &ValidationError{Field: "Payee.MerchantName", Message: "exceeds maximum length of 128 characters"})

@@ -3,6 +3,7 @@ package fraud
 import (
 	"encoding/json"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -65,7 +66,7 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 			score := considerScore(paymentStats)
 
 			if score > 120 {
-				if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil {
+				if err := a.banUser(a.lifecycle.Ctx, strconv.Itoa(int(payment.Payer.AccountID))); err != nil {
 					return err
 				}
 			}
