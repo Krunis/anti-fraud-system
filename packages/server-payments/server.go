@@ -52,6 +52,11 @@ func (s *ServerPayments) Start() error {
 		return err
 	}
 
+	s.syncProducer, err = NewSyncProducer([]string{"kafka:9092"})
+	if err != nil{
+		return err
+	}
+
 	lis, err := net.Listen("tcp", s.address)
 	if err != nil {
 		return err
@@ -132,6 +137,12 @@ func (s *ServerPayments) Stop() error {
 					errs = append(errs, err)
 				}
 				err = fmt.Errorf("shutdown failed: %v, forced close", err)
+			}
+		}
+
+		if s.syncProducer != nil{
+			if err := s.syncProducer.Close(); err != nil{
+				errs = append(errs, err)
 			}
 		}
 

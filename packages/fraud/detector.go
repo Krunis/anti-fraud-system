@@ -68,7 +68,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
 	}
 
 	a.consumer, err = NewConsumer([]string{"kafka:9092"})
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -104,8 +104,9 @@ func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentE
 	}
 
 	for _, cmd := range cmds {
-		err := cmd.Err()
-		log.Printf("Failed to update user stats in Redis: %s", err)
+		if err := cmd.Err(); err != nil {
+			log.Printf("Failed to update user stats in Redis: %s", err.Error())
+		}
 	}
 
 	return nil
