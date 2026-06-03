@@ -34,8 +34,6 @@ func main() {
 
 		stop(serv)
 	}
-
-	
 }
 
 func stop(serv *serverpayments.ServerPayments){

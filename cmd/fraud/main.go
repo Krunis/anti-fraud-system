@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/Krunis/anti-fraud-system/packages/fraud"
 )
 
@@ -15,7 +16,7 @@ func main() {
 	errCh := make(chan error, 1)
 
 	go func ()  {
-		if err := fr.Start("fraud", "payments", "default"); err != nil{
+		if err := fr.Start("fraud", "payments", "default", common.GetDBConnectionString()); err != nil{
 			errCh <- err
 	}
 	}()
@@ -27,11 +28,11 @@ func main() {
 	select{
 	case <-signCh:
 		log.Println("Signal received")
-		stop(fr)
 
-		return
+		stop(fr)
 	case err := <-errCh:
 		log.Printf("Error while working: %s", err)
+		
 		stop(fr)
 	}
 }

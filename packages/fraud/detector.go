@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -31,6 +32,8 @@ type AntiFraud struct {
 	consumer *Consumer
 
 	redisDB *common.Redis
+
+	postgresDB *pgxpool.Pool
 
 	clickHouse     *common.CHWriter
 	paymentCh      chan *common.PaymentEvent
@@ -54,8 +57,13 @@ func NewAntiFraud() *AntiFraud {
 	}
 }
 
-func (a *AntiFraud) Start(databaseCH, tableCH, userCH string) error {
+func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string) error {
 	var err error
+
+	a.postgresDB, err = common.ConnectToDB(a.lifecycle.Ctx, dbConnectionString)
+	if err != nil{
+		return err
+	}
 
 	a.redisDB, err = common.ConnectToRedis(a.lifecycle.Ctx)
 	if err != nil {
@@ -160,9 +168,28 @@ func stringSliceToFloat64(slice []string) []float64 {
 	return intSlice
 }
 
-// func (a *AntiFraud) Detect() (bool, error) {
+func (a *AntiFraud) Detect() (bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// }
+	rows, err := a.postgresDB.Query(ctx, `
+	SELECT * FROM fraud_requests
+	WHERE ????
+	LIMIT 10`)
+	if err != nil{
+		return true, err
+	}
+
+	for rows.Next(){
+		var row ???
+
+		rows.Scan(&row)
+
+		a.aggrFromClickHouse(ctx, rowToPayment)
+	}
+
+	
+}
 
 func (a *AntiFraud) Stop() error {
 	var errs []error

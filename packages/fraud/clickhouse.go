@@ -68,20 +68,20 @@ func (a *AntiFraud) pollerToClickHouse() {
 
 			for payment := range a.paymentCh{
 				err := batch.Append(
-					clickhouse.Named("event_id", payment.EventID),
-					clickhouse.Named("event_time", payment.EventTime),
-					clickhouse.Named("direction", payment.Direction),
-					clickhouse.Named("amount", payment.Transaction.Amount),
-					clickhouse.Named("currency", payment.Transaction.Currency),
-					clickhouse.Named("tx_type", payment.Transaction.Type),
-					clickhouse.Named("account_id", payment.Payer.AccountID),
-					clickhouse.Named("merchant_id", payment.Payee.MerchantID),
-					clickhouse.Named("merchant_name", payment.Payee.MerchantName),
-					clickhouse.Named("country", payment.Payee.Country),
-					clickhouse.Named("channel", payment.Context.Channel),
-					clickhouse.Named("device_id", payment.Context.DeviceID),
-					clickhouse.Named("ip", payment.Context.IP),
-					clickhouse.Named("user_agent", payment.Context.UserAgent),
+					payment.EventID,
+					payment.EventTime,
+					payment.Direction,
+					payment.Transaction.Amount,
+					payment.Transaction.Currency,
+					payment.Transaction.Type,
+					payment.Payer.AccountID,
+					payment.Payee.MerchantID,
+					payment.Payee.MerchantName,
+					payment.Payee.Country,
+					payment.Context.Channel,
+					payment.Context.DeviceID,
+					payment.Context.IP,
+					payment.Context.UserAgent,
 				)
 				if err != nil{
 					log.Printf("Failed to append in batch: %s", err)
