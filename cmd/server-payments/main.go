@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Krunis/anti-fraud-system/packages/common"
 	serverpayments "github.com/Krunis/anti-fraud-system/packages/server-payments"
 )
 
@@ -15,7 +16,7 @@ func main() {
 	errCh := make(chan error, 1)
 
 	go func() {
-		if err := serv.Start(); err != nil {
+		if err := serv.Start(common.GetDBConnectionString()); err != nil {
 			errCh <- err
 		}
 	}()

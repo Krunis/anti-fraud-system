@@ -57,6 +57,12 @@ type PaymentEvent struct {
 	Context *ContextData `json:"context"`
 }
 
+type DetectRequest struct{
+	Payer *PayerType `json:"payer"`
+
+	IntervalSince *time.Time `json:"interval"`
+}
+
 type Redis struct {
 	*redis.Client
 }

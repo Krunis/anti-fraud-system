@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 type ServerPayments struct {
@@ -25,6 +26,8 @@ type ServerPayments struct {
 	redisDB *common.Redis
 
 	syncProducer *SyncProducer
+
+	postgresDB *pgxpool.Pool
 
 	lifecycle *common.Lifecycle
 
@@ -44,8 +47,13 @@ func NewServerPayments(address string) *ServerPayments {
 	}
 }
 
-func (s *ServerPayments) Start() error {
+func (s *ServerPayments) Start(dbConnectionString string) error {
 	var err error
+
+	s.postgresDB, err = common.ConnectToDB(s.lifecycle.Ctx, dbConnectionString)
+	if err != nil{
+		return err
+	}
 
 	s.redisDB, err = common.ConnectToRedis(s.lifecycle.Ctx)
 	if err != nil {
@@ -64,6 +72,7 @@ func (s *ServerPayments) Start() error {
 
 	s.httpServer = &http.Server{}
 	s.mux.HandleFunc("/payment/add", s.paymentHandler)
+	s.mux.HandleFunc("/detect/", s.detectRequestHandler)
 
 	s.httpServer.Handler = s.mux
 
@@ -114,6 +123,49 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 
 		w.WriteHeader(http.StatusCreated)
 	}
+}
+
+func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Request){
+	select {
+	case <-s.lifecycle.Ctx.Done():
+		log.Println("Request cancelled (shutdown or client disconnected)")
+		return
+	default:
+		if r.Method != "POST" {
+			http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		detreq := &common.DetectRequest{}
+
+		err := json.NewDecoder(r.Body).Decode(&detreq)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+
+		dbCtx, cancel := context.WithTimeout(r.Context(), time.Second * 1)
+		defer cancel()
+
+		if err := s.detReqInPostgres(dbCtx, detreq); err != nil{
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+	}
+}
+
+func (s *ServerPayments) detReqInPostgres(ctx context.Context, detreq *common.DetectRequest) error{
+	_, err := s.postgresDB.Exec(ctx, `
+	INSERT INTO fraud_requests()
+	VALUES()`)
+	if err != nil{
+		return err
+	}
+	
+	return nil
 }
 
 func (s *ServerPayments) Stop() error {
