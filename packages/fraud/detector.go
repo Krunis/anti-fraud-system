@@ -75,6 +75,8 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 		return err
 	}
 
+	a.wg.Go(a.startDetector)
+
 	a.consumer, err = NewConsumer([]string{"kafka:9092"})
 	if err != nil {
 		return err
@@ -118,6 +120,20 @@ func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentE
 	}
 
 	return nil
+}
+
+func (a *AntiFraud) startDetector(){
+	timer := time.NewTimer(time.Second * 3)
+	defer timer.Stop()
+
+	for{
+		select{
+		case <-timer.C:
+			a.Detect()
+		case <-a.lifecycle.Ctx.Done():
+			return 
+		}
+	}
 }
 
 func (a *AntiFraud) getStatsFromRedis(ctx context.Context, payment *common.PaymentEvent) (*PaymentStats, error) {
@@ -173,19 +189,21 @@ func (a *AntiFraud) Detect() (bool, error) {
 	defer cancel()
 
 	rows, err := a.postgresDB.Query(ctx, `
-	SELECT * FROM fraud_requests
-	WHERE ????
-	LIMIT 10`)
+					SELECT * FROM fraud_requests
+					WHERE interval_since < NOW()
+					LIMIT 10`)
 	if err != nil{
 		return true, err
 	}
 
 	for rows.Next(){
-		var row ???
+		var row *common.DetectRequest
 
-		rows.Scan(&row)
+		if err := rows.Scan(&row); err != nil{
+			log.Printf("Failed to scan row: %s", err)
+		}
 
-		a.aggrFromClickHouse(ctx, rowToPayment)
+		a.aggrFromClickHouse(ctx, row)
 	}
 
 	
