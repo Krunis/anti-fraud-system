@@ -96,7 +96,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 	}
 }
 
-func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, payment *common.PaymentEvent) (int32, error) {
+func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.DetectRequest) (int32, error) {
 	var sum int
 
 	var score int32 = 0
@@ -107,7 +107,7 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, payment *common.Paym
 											SELECT sum(amount)
 											FROM fraud.payments
 											WHERE account_id=$1 AND event_time + INTERVAL 1 WEEK <= NOW()`,
-												payment.Payer.AccountID)
+												detreq.Payer.AccountID)
 	if row.Err() != nil{
 		return 100000, row.Err()
 	}
@@ -122,7 +122,7 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, payment *common.Paym
 												SELECT 1
 												FROM fraud.payments
 												WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
-												payment.Payer.AccountID, payment.Payee.MerchantID)
+												detreq.Payer.AccountID, detreq.Payee.MerchantID)
 	if row.Err() != nil{
 		return 100000, row.Err()
 	}

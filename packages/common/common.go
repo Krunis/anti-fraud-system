@@ -60,6 +60,8 @@ type PaymentEvent struct {
 type DetectRequest struct{
 	Payer *PayerType `json:"payer"`
 
+	Payee *PayeeType `json:"payee"`
+
 	IntervalSince *time.Time `json:"interval"`
 }
 

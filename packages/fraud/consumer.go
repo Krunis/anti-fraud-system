@@ -2,12 +2,10 @@ package fraud
 
 import (
 	"encoding/json"
-	"log"
-	"strconv"
-	"time"
-
 	"github.com/IBM/sarama"
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"log"
+	"time"
 )
 
 type Consumer struct {
@@ -16,7 +14,7 @@ type Consumer struct {
 
 func NewConsumer(addrs []string) (*Consumer, error) {
 	config := sarama.NewConfig()
-	
+
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
 	config.Consumer.Offsets.AutoCommit = struct {
 		Enable   bool
@@ -66,7 +64,7 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 			score := considerScore(paymentStats)
 
 			if score > 120 {
-				if err := a.banUser(a.lifecycle.Ctx, strconv.Itoa(int(payment.Payer.AccountID))); err != nil {
+				if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil {
 					return err
 				}
 			}
@@ -78,8 +76,8 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 		case <-session.Context().Done():
 			log.Println("Session context done, committing and exiting")
 
-            session.Commit()
-            return nil
+			session.Commit()
+			return nil
 		}
 	}
 }

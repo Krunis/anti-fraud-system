@@ -129,8 +129,14 @@ func (a *AntiFraud) startDetector(){
 	for{
 		select{
 		case <-timer.C:
-			a.Detect()
-		case <-a.lifecycle.Ctx.Done():
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second * 5)
+
+			if err := a.DetectAndBan(ctx); err != nil{
+				log.Printf("Failed to detect fraud: %s", err)
+			}
+
+			cancel()
+			case <-a.lifecycle.Ctx.Done():
 			return 
 		}
 	}
@@ -165,8 +171,8 @@ func (a *AntiFraud) getStatsFromRedis(ctx context.Context, payment *common.Payme
 	}, nil
 }
 
-func (a *AntiFraud) banUser(ctx context.Context, userID string) error {
-	return a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%s", userID), "1", time.Minute*15).Err()
+func (a *AntiFraud) banUser(ctx context.Context, userID int64) error {
+	return a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err()
 }
 
 func stringSliceToFloat64(slice []string) []float64 {
@@ -184,7 +190,7 @@ func stringSliceToFloat64(slice []string) []float64 {
 	return intSlice
 }
 
-func (a *AntiFraud) Detect() (bool, error) {
+func (a *AntiFraud) DetectAndBan(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -193,7 +199,7 @@ func (a *AntiFraud) Detect() (bool, error) {
 					WHERE interval_since < NOW()
 					LIMIT 10`)
 	if err != nil{
-		return true, err
+		return err
 	}
 
 	for rows.Next(){
@@ -203,10 +209,19 @@ func (a *AntiFraud) Detect() (bool, error) {
 			log.Printf("Failed to scan row: %s", err)
 		}
 
-		a.aggrFromClickHouse(ctx, row)
+		scores, err := a.aggrFromClickHouse(ctx, row)
+		if err != nil{
+			return err
+		}
+
+		if scores >= 150{
+			if err := a.banUser(ctx, row.Payer.AccountID); err != nil{
+				log.Printf("Failed to ban user: %d error: %s", row.Payer.AccountID, err)
+			}
+		}
 	}
 
-	
+	return nil
 }
 
 func (a *AntiFraud) Stop() error {
