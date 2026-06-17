@@ -5,6 +5,7 @@ go 1.25.3
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.46.0
 	github.com/IBM/sarama v1.48.0
+	github.com/byteonabeach/ip2country v0.1.5
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/redis/go-redis/v9 v9.19.0
 )
