@@ -100,7 +100,7 @@ func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentE
 	pipeline.Incr(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID))
 	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID), time.Second*30)
 	
-	ipDB := ip2country.NewIPCountryDB("countries.csv")
+	ipDB := ip2country.NewIPCountryDB("../../countries.csv")
 	country, err := ipDB.GetCountry(payment.Context.IP)
 	if err != nil{
 		log.Printf("Failed to look country from IP: %s", err)
