@@ -2,10 +2,12 @@ package fraud
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
@@ -45,55 +47,97 @@ func (a *AntiFraud) sendInClickHouse(ctx context.Context, payment *common.Paymen
 }
 
 func (a *AntiFraud) pollerToClickHouse() {
-	
-
 	timer := time.NewTimer(time.Second * 5)
 	defer timer.Stop()
+
+	var err error
+	var batch driver.Batch
+	var count int
 
 	for {
 		select {
 		case <-a.lifecycle.Ctx.Done():
 			return
-		case <-timer.C:
-			batch, err := a.clickHouse.Conn.PrepareBatch(a.lifecycle.Ctx, `
-			INSERT INTO fraud.payments (
+		case payment, ok := <-a.paymentCh:
+			if !ok {
+
+				log.Println("Fail to get from channel")
+
+				if batch != nil && count > 0 {
+					if err := sendBatch(batch); err != nil {
+						log.Printf("Failed to send batch: %s", err)
+					}
+
+					log.Println("Batch sent by fail to get from channel")
+				}
+
+				continue
+			}
+
+			if batch == nil {
+				batch, err = a.clickHouse.Conn.PrepareBatch(a.lifecycle.Ctx, `
+										INSERT INTO fraud.payments (
 										event_id, event_time, direction, 
 										amount, currency, transaction_type,
 										account_id, merchant_id, merchant_name, country,
 										channel, device_id, ip, user_agent)`,
-									) 
-			if err != nil{
-				log.Printf("Failed to prepare batch: %s", err)
-			}
-
-			for payment := range a.paymentCh{
-				err := batch.Append(
-					payment.EventID,
-					payment.EventTime,
-					payment.Direction,
-					payment.Transaction.Amount,
-					payment.Transaction.Currency,
-					payment.Transaction.Type,
-					payment.Payer.AccountID,
-					payment.Payee.MerchantID,
-					payment.Payee.MerchantName,
-					payment.Payee.Country,
-					payment.Context.Channel,
-					payment.Context.DeviceID,
-					payment.Context.IP,
-					payment.Context.UserAgent,
 				)
-				if err != nil{
-					log.Printf("Failed to append in batch: %s", err)
-
+				if err != nil {
+					log.Printf("Failed to prepare batch: %s", err)
 				}
+
+				count = 0
 			}
 
-			if err := batch.Send(); err != nil{
-				log.Printf("Failed to send batch: %s", err)
+			err := batch.Append(
+				payment.EventID,
+				payment.EventTime,
+				payment.Direction,
+				payment.Transaction.Amount,
+				payment.Transaction.Currency,
+				payment.Transaction.Type,
+				payment.Payer.AccountID,
+				payment.Payee.MerchantID,
+				payment.Payee.MerchantName,
+				payment.Payee.Country,
+				payment.Context.Channel,
+				payment.Context.DeviceID,
+				payment.Context.IP,
+				payment.Context.UserAgent,
+			)
+			if err != nil {
+				log.Printf("Failed to append in batch: %s", err)
 			}
+
+			count++
+
+			log.Printf("Appended in batch: %s", payment.EventID)
+
+		case <-timer.C:
+
+			if batch != nil && count > 0 {
+				if err := sendBatch(batch); err != nil {
+					log.Printf("Failed to send batch: %s", err)
+				}
+
+				log.Println("Batch sent")
+			}
+
+			batch = nil
+			
+			count = 0
+
+			timer.Reset(time.Second * 5)
 		}
 	}
+}
+
+func sendBatch(batch driver.Batch) error {
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("send batch error: %s", err)
+	}
+
+	return nil
 }
 
 func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.DetectRequest) (int32, error) {
@@ -107,13 +151,13 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.Detec
 											SELECT sum(amount)
 											FROM fraud.payments
 											WHERE account_id=$1 AND event_time + INTERVAL 1 WEEK <= NOW()`,
-												detreq.Payer.AccountID)
-	if row.Err() != nil{
+		detreq.Payer.AccountID)
+	if row.Err() != nil {
 		return 100000, row.Err()
 	}
 	row.Scan(&sum)
-	
-	if sum >= 50000000{
+
+	if sum >= 50000000 {
 		score += 40
 	}
 
@@ -122,13 +166,13 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.Detec
 												SELECT 1
 												FROM fraud.payments
 												WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
-												detreq.Payer.AccountID, detreq.Payee.MerchantID)
-	if row.Err() != nil{
+		detreq.Payer.AccountID, detreq.Payee.MerchantID)
+	if row.Err() != nil {
 		return 100000, row.Err()
 	}
 	row.Scan(&exists)
 
-	if !exists{
+	if !exists {
 		score += 30
 	}
 
