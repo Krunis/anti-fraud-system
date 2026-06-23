@@ -2,7 +2,6 @@ package fraud
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"time"
 
@@ -61,17 +60,11 @@ func (a *AntiFraud) pollerToClickHouse() {
 		case payment, ok := <-a.paymentCh:
 			if !ok {
 
-				log.Println("Fail to get from channel")
+				log.Println("Sending batch by fail to get from channel")
 
-				if batch != nil && count > 0 {
-					if err := sendBatch(batch); err != nil {
-						log.Printf("Failed to send batch: %s", err)
-					}
-
-					log.Println("Batch sent by fail to get from channel")
-				}
-
-				continue
+				sendBatch(batch, count)
+			
+				return
 			}
 
 			if batch == nil {
@@ -84,6 +77,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 				)
 				if err != nil {
 					log.Printf("Failed to prepare batch: %s", err)
+					continue
 				}
 
 				count = 0
@@ -114,14 +108,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 			log.Printf("Appended in batch: %s", payment.EventID)
 
 		case <-timer.C:
-
-			if batch != nil && count > 0 {
-				if err := sendBatch(batch); err != nil {
-					log.Printf("Failed to send batch: %s", err)
-				}
-
-				log.Println("Batch sent")
-			}
+			sendBatch(batch, count)
 
 			batch = nil
 			
@@ -132,12 +119,18 @@ func (a *AntiFraud) pollerToClickHouse() {
 	}
 }
 
-func sendBatch(batch driver.Batch) error {
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("send batch error: %s", err)
+func sendBatch(batch driver.Batch, count int){
+	if batch == nil || count == 0{
+		return
 	}
 
-	return nil
+	if err := batch.Send(); err != nil {
+		log.Printf("Failed to send batch. Error: %s", err)
+		return
+	}
+
+	log.Println("Batch sent")
+
 }
 
 func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.DetectRequest) (int32, error) {

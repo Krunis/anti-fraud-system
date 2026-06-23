@@ -16,13 +16,16 @@ func (a *AntiFraud) startDetector() {
 	for {
 		select {
 		case <-timer.C:
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+				defer cancel()
 
-			if err := a.detectAndBan(ctx); err != nil {
-				log.Printf("Failed to detect fraud: %s", err)
-			}
+				if err := a.detectAndBan(ctx); err != nil {
+					log.Printf("Failed to detect fraud: %s", err)
+				}
 
-			cancel()
+				timer.Reset(time.Second * 3)
+			}()
 		case <-a.lifecycle.Ctx.Done():
 			return
 		}
