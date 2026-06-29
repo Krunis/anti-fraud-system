@@ -29,6 +29,8 @@ type ServerPayments struct {
 
 	postgresDB *pgxpool.Pool
 
+	paymentsToKafka chan *common.PaymentEvent
+
 	lifecycle *common.Lifecycle
 
 	stopOnce sync.Once
@@ -38,8 +40,9 @@ func NewServerPayments(address string) *ServerPayments {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ServerPayments{
-		address: address,
-		mux: http.NewServeMux(),
+		address:         address,
+		mux:             http.NewServeMux(),
+		paymentsToKafka: make(chan *common.PaymentEvent, 2000),
 		lifecycle: &common.Lifecycle{
 			Ctx:    ctx,
 			Cancel: cancel,
@@ -51,7 +54,7 @@ func (s *ServerPayments) Start(dbConnectionString string) error {
 	var err error
 
 	s.postgresDB, err = common.ConnectToDB(s.lifecycle.Ctx, dbConnectionString)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -60,8 +63,10 @@ func (s *ServerPayments) Start(dbConnectionString string) error {
 		return err
 	}
 
+	go s.senderPaymentsToKafka()
+
 	s.syncProducer, err = NewSyncProducer([]string{"kafka:9092"})
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
@@ -99,6 +104,7 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 		err := json.NewDecoder(r.Body).Decode(&payment)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("HTTP Error: %s", err)
 			return
 		}
 		defer r.Body.Close()
@@ -108,24 +114,30 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 
 		if err := ValidatePaymentEvent(payment); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("HTTP Error: %s", err)
 			return
 		}
 
-		if s.redisDB.CheckBan(r.Context(), strconv.Itoa(int(payment.Payer.AccountID))) {
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second*2)
+		defer cancel()
+
+		if s.redisDB.CheckBan(ctx, strconv.Itoa(int(payment.Payer.AccountID))) {
 			http.Error(w, "banned", http.StatusForbidden)
+			log.Printf("HTTP Error: %s", err)
 			return
 		}
 
-		if err := s.ProduceToKafka("payment-events", payment); err != nil {
-			http.Error(w, "server unavailable", http.StatusInternalServerError)
+		select {
+		case s.paymentsToKafka <- payment:
+			w.WriteHeader(http.StatusCreated)
+		case <-ctx.Done():
+			http.Error(w, ctx.Err().Error(), http.StatusInternalServerError)
 			return
 		}
-
-		w.WriteHeader(http.StatusCreated)
 	}
 }
 
-func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Request){
+func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Request) {
 	select {
 	case <-s.lifecycle.Ctx.Done():
 		log.Println("Request cancelled (shutdown or client disconnected)")
@@ -145,10 +157,10 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 		}
 		defer r.Body.Close()
 
-		dbCtx, cancel := context.WithTimeout(r.Context(), time.Second * 1)
+		dbCtx, cancel := context.WithTimeout(r.Context(), time.Second*1)
 		defer cancel()
 
-		if err := s.detReqInPostgres(dbCtx, detreq); err != nil{
+		if err := s.detReqInPostgres(dbCtx, detreq); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -157,15 +169,15 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 	}
 }
 
-func (s *ServerPayments) detReqInPostgres(ctx context.Context, detreq *common.DetectRequest) error{
+func (s *ServerPayments) detReqInPostgres(ctx context.Context, detreq *common.DetectRequest) error {
 	_, err := s.postgresDB.Exec(ctx, `
 	INSERT INTO fraud_requests(account_id, interval_since)
 	VALUES($1, $2)`, detreq.Payer.AccountID, detreq.IntervalSince)
 
-	if err != nil{
+	if err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -193,8 +205,8 @@ func (s *ServerPayments) Stop() error {
 			}
 		}
 
-		if s.syncProducer != nil{
-			if err := s.syncProducer.Close(); err != nil{
+		if s.syncProducer != nil {
+			if err := s.syncProducer.Close(); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -211,4 +223,35 @@ func (s *ServerPayments) Stop() error {
 	}
 
 	return nil
+}
+
+func (s *ServerPayments) senderPaymentsToKafka() {
+	paymentsSlice := make([]*common.PaymentEvent, 0, 2000)
+
+	timer := time.NewTimer(time.Second * 1)
+	defer timer.Stop()
+
+	for {
+		select {
+		case payment := <-s.paymentsToKafka:
+			paymentsSlice = append(paymentsSlice, payment)
+
+			if len(paymentsSlice) >= 2000 {
+				if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
+					log.Printf("Error while producing to Kafka: %s", err)
+				}
+
+				paymentsSlice = make([]*common.PaymentEvent, 2000)
+			}
+		case <-timer.C:
+			if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
+				log.Printf("Error while producing to Kafka: %s", err)
+			}
+
+			paymentsSlice = make([]*common.PaymentEvent, 2000)
+
+			timer.Reset(time.Second * 1)
+		}
+	}
+
 }

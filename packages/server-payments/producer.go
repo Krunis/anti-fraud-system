@@ -29,44 +29,50 @@ func NewSyncProducer(addrs []string) (*SyncProducer, error) {
 	cfg.Producer.Transaction.Retry.Backoff = 100 * time.Millisecond
 
 	prod, err := sarama.NewSyncProducer(addrs, cfg)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 
 	return &SyncProducer{SyncProducer: prod}, nil
 }
 
-func (s *ServerPayments) ProduceToKafka(topic string, payment *common.PaymentEvent) error{
-	if err := s.syncProducer.BeginTxn(); err != nil{
+func (s *ServerPayments) ProduceToKafka(topic string, payments []*common.PaymentEvent) error {
+	if err := s.syncProducer.BeginTxn(); err != nil {
 		return err
 	}
-	
+
 	commited := false
 
-	defer func(){
-		if !commited{
-			if err := s.syncProducer.AbortTxn(); err != nil{
+	defer func() {
+		if !commited {
+			if err := s.syncProducer.AbortTxn(); err != nil {
 				log.Printf("abort Kafka transaction failed: %s", err)
 			}
 		}
 	}()
 
-	value, err := json.Marshal(payment)
-	if err != nil{
+	msgs := make([]*sarama.ProducerMessage, len(payments))
+
+	for _, payment := range payments {
+		value, err := json.Marshal(payment)
+		if err != nil {
+			return err
+		}
+
+		msg := &sarama.ProducerMessage{
+			Topic: topic,
+			Key:   sarama.StringEncoder(payment.EventID),
+			Value: sarama.ByteEncoder(value),
+		}
+
+		msgs = append(msgs, msg)
+	}
+
+	if err := s.syncProducer.SendMessages(msgs); err != nil {
 		return err
 	}
 
-	msg := &sarama.ProducerMessage{
-		Topic: topic,
-		Key: sarama.StringEncoder(payment.EventID),
-		Value: sarama.ByteEncoder(value),
-	}
-
-	if _, _, err := s.syncProducer.SendMessage(msg); err != nil{
-		return err
-	}
-
-	if err := s.syncProducer.CommitTxn(); err != nil{
+	if err := s.syncProducer.CommitTxn(); err != nil {
 		return err
 	}
 
