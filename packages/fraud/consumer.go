@@ -1,18 +1,21 @@
 package fraud
 
 import (
+	"context"
 	"encoding/json"
-	"github.com/IBM/sarama"
-	"github.com/Krunis/anti-fraud-system/packages/common"
+	"fmt"
 	"log"
 	"time"
+
+	"github.com/IBM/sarama"
+	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
 type Consumer struct {
 	sarama.ConsumerGroup
 }
 
-func NewConsumer(addrs []string) (*Consumer, error) {
+func NewConsumer(ctx context.Context, addrs []string) (*Consumer, error) {
 	config := sarama.NewConfig()
 
 	config.Consumer.Offsets.Initial = sarama.OffsetOldest
@@ -23,12 +26,30 @@ func NewConsumer(addrs []string) (*Consumer, error) {
 
 	config.Consumer.IsolationLevel = sarama.ReadCommitted
 
-	consumerGroup, err := sarama.NewConsumerGroup(addrs, "A", config)
-	if err != nil {
-		return nil, err
-	}
+	var err error
 
-	return &Consumer{ConsumerGroup: consumerGroup}, nil
+	timer := time.NewTimer(time.Second * 26)
+	defer timer.Stop()
+
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			consumerGroup, err := sarama.NewConsumerGroup(addrs, "A", config)
+			if err == nil {
+				return &Consumer{ConsumerGroup: consumerGroup}, nil
+			}
+
+			log.Printf("Failed to connect to Kafka: %s. Retrying...\n", err)
+
+		case <-timer.C:
+			return nil, fmt.Errorf("db connection timeout (25s): %v", err)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 func (a *AntiFraud) Setup(session sarama.ConsumerGroupSession) error {

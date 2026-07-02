@@ -78,7 +78,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 
 	a.wg.Go(a.startDetector)
 
-	a.consumer, err = NewConsumer([]string{"kafka:9092"})
+	a.consumer, err = NewConsumer(a.lifecycle.Ctx, []string{"kafka:9092"})
 	if err != nil {
 		return err
 	}

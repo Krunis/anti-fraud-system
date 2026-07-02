@@ -1,7 +1,9 @@
 package serverpayments
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -13,14 +15,14 @@ type SyncProducer struct {
 	sarama.SyncProducer
 }
 
-func NewSyncProducer(addrs []string) (*SyncProducer, error) {
+func NewSyncProducer(ctx context.Context, addrs []string) (*SyncProducer, error) {
 	cfg := sarama.NewConfig()
 
 	cfg.Producer.Idempotent = true
 	cfg.Producer.RequiredAcks = sarama.WaitForAll
 	cfg.Net.MaxOpenRequests = 1
 	cfg.Producer.Retry.Max = 30
-	cfg.Producer.Retry.Backoff = 10 * time.Millisecond
+	cfg.Producer.Retry.Backoff = 100 * time.Millisecond
 
 	cfg.Producer.Return.Successes = true
 
@@ -28,15 +30,41 @@ func NewSyncProducer(addrs []string) (*SyncProducer, error) {
 	cfg.Producer.Transaction.Retry.Max = 10
 	cfg.Producer.Transaction.Retry.Backoff = 100 * time.Millisecond
 
-	prod, err := sarama.NewSyncProducer(addrs, cfg)
-	if err != nil {
-		return nil, err
-	}
+	var err error
 
-	return &SyncProducer{SyncProducer: prod}, nil
+	timer := time.NewTimer(time.Second * 26)
+	defer timer.Stop()
+
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			prod, err := sarama.NewSyncProducer(addrs, cfg)
+			if err == nil {
+				return &SyncProducer{SyncProducer: prod}, nil
+			}
+
+			log.Printf("Failed to connect to Kafka: %s. Retrying...\n", err)
+
+		case <-timer.C:
+			return nil, fmt.Errorf("db connection timeout (25s): %v", err)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }
 
 func (s *ServerPayments) ProduceToKafka(topic string, payments []*common.PaymentEvent) error {
+	if s.syncProducer == nil {
+		return fmt.Errorf("syncProducer is nil")
+	}
+
+	if len(payments) == 0 {
+		return nil
+	}
+
 	if err := s.syncProducer.BeginTxn(); err != nil {
 		return err
 	}

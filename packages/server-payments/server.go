@@ -63,12 +63,12 @@ func (s *ServerPayments) Start(dbConnectionString string) error {
 		return err
 	}
 
-	go s.senderPaymentsToKafka()
-
-	s.syncProducer, err = NewSyncProducer([]string{"kafka:9092"})
+	s.syncProducer, err = NewSyncProducer(s.lifecycle.Ctx, []string{"kafka:9092"})
 	if err != nil {
 		return err
 	}
+
+	go s.senderPaymentsToKafka()
 
 	lis, err := net.Listen("tcp", s.address)
 	if err != nil {
@@ -236,21 +236,30 @@ func (s *ServerPayments) senderPaymentsToKafka() {
 		case payment := <-s.paymentsToKafka:
 			paymentsSlice = append(paymentsSlice, payment)
 
+			log.Println(len(paymentsSlice))
+
 			if len(paymentsSlice) >= 2000 {
 				if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
 					log.Printf("Error while producing to Kafka: %s", err)
 				}
 
-				paymentsSlice = make([]*common.PaymentEvent, 2000)
+				paymentsSlice = make([]*common.PaymentEvent, 0, 2000)
 			}
 		case <-timer.C:
-			if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
-				log.Printf("Error while producing to Kafka: %s", err)
+			log.Println(len(paymentsSlice))
+
+			if len(paymentsSlice) > 0 {
+				log.Printf("Flushing %d payments to Kafka (timeout)", len(paymentsSlice))
+
+
+				if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
+					log.Printf("Error while producing to Kafka: %s", err)
+				}
+
+				paymentsSlice = make([]*common.PaymentEvent, 0, 2000)
+
+				timer.Reset(time.Second * 1)
 			}
-
-			paymentsSlice = make([]*common.PaymentEvent, 2000)
-
-			timer.Reset(time.Second * 1)
 		}
 	}
 
