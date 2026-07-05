@@ -57,6 +57,14 @@ func (a *AntiFraud) pollerToClickHouse() {
 		select {
 		case <-a.lifecycle.Ctx.Done():
 			return
+		case <-timer.C:
+			sendBatch(batch, count)
+
+			batch = nil
+			
+			count = 0
+
+			timer.Reset(time.Second * 5)
 		case payment, ok := <-a.paymentCh:
 			if !ok {
 
@@ -106,15 +114,6 @@ func (a *AntiFraud) pollerToClickHouse() {
 			count++
 
 			log.Printf("Appended in batch: %s", payment.EventID)
-
-		case <-timer.C:
-			sendBatch(batch, count)
-
-			batch = nil
-			
-			count = 0
-
-			timer.Reset(time.Second * 5)
 		}
 	}
 }

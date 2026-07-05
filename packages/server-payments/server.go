@@ -239,6 +239,8 @@ func (s *ServerPayments) senderPaymentsToKafka() {
 			log.Println(len(paymentsSlice))
 
 			if len(paymentsSlice) >= 2000 {
+				log.Printf("Flushing %d payments to Kafka (limit)", len(paymentsSlice))
+
 				if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
 					log.Printf("Error while producing to Kafka: %s", err)
 				}
@@ -250,7 +252,6 @@ func (s *ServerPayments) senderPaymentsToKafka() {
 
 			if len(paymentsSlice) > 0 {
 				log.Printf("Flushing %d payments to Kafka (timeout)", len(paymentsSlice))
-
 
 				if err := s.ProduceToKafka("payment-events", paymentsSlice); err != nil {
 					log.Printf("Error while producing to Kafka: %s", err)

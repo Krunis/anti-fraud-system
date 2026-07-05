@@ -79,7 +79,7 @@ func (s *ServerPayments) ProduceToKafka(topic string, payments []*common.Payment
 		}
 	}()
 
-	msgs := make([]*sarama.ProducerMessage, len(payments))
+	msgs := make([]*sarama.ProducerMessage, 0, len(payments))
 
 	for _, payment := range payments {
 		value, err := json.Marshal(payment)
@@ -96,8 +96,11 @@ func (s *ServerPayments) ProduceToKafka(topic string, payments []*common.Payment
 		msgs = append(msgs, msg)
 	}
 
-	if err := s.syncProducer.SendMessages(msgs); err != nil {
-		return err
+	log.Printf("Len(msgs)=%d", len(msgs))
+	if len(msgs) > 0 {
+		if err := s.syncProducer.SendMessages(msgs); err != nil {
+			return err
+		}
 	}
 
 	if err := s.syncProducer.CommitTxn(); err != nil {
