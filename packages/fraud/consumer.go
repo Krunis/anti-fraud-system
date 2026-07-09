@@ -73,11 +73,11 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 
 			a.paymentCh <- payment
 
-			if err := a.refreshInRedis(a.lifecycle.Ctx, payment); err != nil {
+			if err := a.refreshInRedis(session.Context(), payment); err != nil {
 				return err
 			}
 
-			paymentStats, err := a.getStatsFromRedis(a.lifecycle.Ctx, payment)
+			paymentStats, err := a.getStatsFromRedis(session.Context(), payment)
 			if err != nil {
 				return err
 			}
@@ -85,19 +85,15 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 			score := considerScore(paymentStats)
 
 			if score > 120 {
-				if err := a.banUser(a.lifecycle.Ctx, payment.Payer.AccountID); err != nil {
+				if err := a.banUser(session.Context(), payment.Payer.AccountID); err != nil {
 					return err
 				}
 			}
 
 			session.MarkMessage(msg, "")
-
-			session.Commit()
-
 		case <-session.Context().Done():
-			log.Println("Session context done, committing and exiting")
+			log.Println("Session context done, exiting")
 
-			session.Commit()
 			return nil
 		}
 	}

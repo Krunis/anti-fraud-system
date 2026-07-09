@@ -67,7 +67,6 @@ func (a *AntiFraud) pollerToClickHouse() {
 			timer.Reset(time.Second * 5)
 		case payment, ok := <-a.paymentCh:
 			if !ok {
-
 				log.Println("Sending batch by fail to get from channel")
 
 				sendBatch(batch, count)
