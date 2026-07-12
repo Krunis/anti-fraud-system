@@ -19,6 +19,9 @@ profile.cov
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+data/
+ch-ui-data/
+redisdata/
 
 # Go workspace file
 go.work

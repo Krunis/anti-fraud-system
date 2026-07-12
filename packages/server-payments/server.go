@@ -148,9 +148,9 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 			return
 		}
 
-		detreq := &common.DetectRequest{}
+		detReq := &common.DetectRequest{}
 
-		err := json.NewDecoder(r.Body).Decode(&detreq)
+		err := json.NewDecoder(r.Body).Decode(&detReq)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -160,19 +160,21 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 		dbCtx, cancel := context.WithTimeout(r.Context(), time.Second*1)
 		defer cancel()
 
-		if err := s.detReqInPostgres(dbCtx, detreq); err != nil {
+		if err := s.detReqInPostgres(dbCtx, detReq); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+
+		log.Printf("Detect request sent: %d", detReq.Payer.AccountID)
 
 		w.WriteHeader(http.StatusCreated)
 	}
 }
 
-func (s *ServerPayments) detReqInPostgres(ctx context.Context, detreq *common.DetectRequest) error {
+func (s *ServerPayments) detReqInPostgres(ctx context.Context, detReq *common.DetectRequest) error {
 	_, err := s.postgresDB.Exec(ctx, `
 	INSERT INTO fraud_requests(account_id, interval_since)
-	VALUES($1, $2)`, detreq.Payer.AccountID, detreq.IntervalSince)
+	VALUES($1, $2)`, detReq.Payer.AccountID, detReq.IntervalSince)
 
 	if err != nil {
 		return err
@@ -258,9 +260,9 @@ func (s *ServerPayments) senderPaymentsToKafka() {
 				}
 
 				paymentsSlice = make([]*common.PaymentEvent, 0, 2000)
-
-				timer.Reset(time.Second * 1)
 			}
+
+			timer.Reset(time.Second * 1)
 		}
 	}
 

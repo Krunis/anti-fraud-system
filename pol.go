@@ -85,8 +85,8 @@ func generateRandomEvent(id int) Event {
 	// Случайная сумма от 100 до 1000000
 	amount := rand.Intn(1000000-100) + 100
 	
-	// Случайный account_id от 10000000 до 99999999
-	accountID := rand.Intn(90000000) + 10000000
+	// Случайный account_id от 1000 до 9999
+	accountID := rand.Intn(9000) + 1000
 	
 	// Случайный merchant_id от 100000 до 999999
 	merchantID := rand.Intn(900000) + 100000

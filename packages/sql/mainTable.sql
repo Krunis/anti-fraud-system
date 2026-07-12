@@ -3,6 +3,6 @@
 -- )
 
 CREATE TABLE IF NOT EXISTS fraud_requests(
-    account_id TEXT,
+    account_id BIGINT,
     interval_since TIMESTAMPTZ
 );

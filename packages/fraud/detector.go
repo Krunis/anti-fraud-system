@@ -16,6 +16,8 @@ func (a *AntiFraud) startDetector() {
 	for {
 		select {
 		case <-timer.C:
+			log.Println("Detecting...")
+
 			func() {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 				defer cancel()
@@ -23,9 +25,9 @@ func (a *AntiFraud) startDetector() {
 				if err := a.detectAndBan(ctx); err != nil {
 					log.Printf("Failed to detect fraud: %s", err)
 				}
-
-				timer.Reset(time.Second * 3)
 			}()
+
+			timer.Reset(time.Second * 3)
 		case <-a.lifecycle.Ctx.Done():
 			return
 		}
@@ -45,18 +47,26 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	}
 
 	for rows.Next() {
-		var row *common.DetectRequest
+		interval := &time.Time{}
 
-		if err := rows.Scan(&row); err != nil {
+		row := &common.DetectRequest{
+			Payer: &common.PayerType{},
+		}
+
+		if err := rows.Scan(&row.Payer.AccountID, &interval); err != nil {
 			log.Printf("Failed to scan row: %s", err)
 		}
+
+		log.Printf("Aggregating for %d", row.Payer.AccountID)
 
 		scores, err := a.aggrFromClickHouse(ctx, row)
 		if err != nil {
 			return err
 		}
 
-		if scores >= 150 {
+		log.Println(scores)
+
+		if scores >= 40 {
 			if err := a.banUser(ctx, row.Payer.AccountID); err != nil {
 				log.Printf("Failed to ban user: %d error: %s", row.Payer.AccountID, err)
 			}
@@ -67,5 +77,11 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 }
 
 func (a *AntiFraud) banUser(ctx context.Context, userID int64) error {
-	return a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err()
+	if err := a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err(); err != nil{
+		return err
+	}
+
+	log.Printf("Banned: %d", userID)
+
+	return nil
 }

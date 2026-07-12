@@ -136,7 +136,7 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.Detec
 
 	var score int32 = 0
 
-	var exists bool
+	// var exists bool
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
 											SELECT sum(amount)
@@ -148,24 +148,24 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.Detec
 	}
 	row.Scan(&sum)
 
-	if sum >= 50000000 {
+	if sum >= 500000 {
 		score += 40
 	}
 
-	row = a.clickHouse.Conn.QueryRow(ctx, `
-											SELECT EXISTS(
-												SELECT 1
-												FROM fraud.payments
-												WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
-		detreq.Payer.AccountID, detreq.Payee.MerchantID)
-	if row.Err() != nil {
-		return 100000, row.Err()
-	}
-	row.Scan(&exists)
+	// row = a.clickHouse.Conn.QueryRow(ctx, `
+	// 										SELECT EXISTS(
+	// 											SELECT 1
+	// 											FROM fraud.payments
+	// 											WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
+	// 	detreq.Payer.AccountID, detreq.Payee.MerchantID)
+	// if row.Err() != nil {
+	// 	return 100000, row.Err()
+	// }
+	// row.Scan(&exists)
 
-	if !exists {
-		score += 30
-	}
+	// if !exists {
+	// 	score += 30
+	// }
 
 	return score, nil
 }

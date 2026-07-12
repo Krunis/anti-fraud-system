@@ -76,14 +76,14 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 		return err
 	}
 
-	a.wg.Go(a.startDetector)
-
 	a.consumer, err = NewConsumer(a.lifecycle.Ctx, []string{"kafka:9092"})
 	if err != nil {
 		return err
 	}
 
 	a.wg.Go(a.pollerToClickHouse)
+
+	a.wg.Go(a.startDetector)
 
 	if err = a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
 		return err
