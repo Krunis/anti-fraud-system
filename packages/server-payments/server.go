@@ -173,9 +173,8 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 
 func (s *ServerPayments) detReqInPostgres(ctx context.Context, detReq *common.DetectRequest) error {
 	_, err := s.postgresDB.Exec(ctx, `
-	INSERT INTO fraud_requests(account_id, interval_since)
-	VALUES($1, $2)`, detReq.Payer.AccountID, detReq.IntervalSince)
-
+									INSERT INTO fraud_requests(account_id, merchant_id, interval_since)
+									VALUES($1, $2, $3)`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
 	if err != nil {
 		return err
 	}

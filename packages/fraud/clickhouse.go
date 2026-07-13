@@ -131,18 +131,18 @@ func sendBatch(batch driver.Batch, count int){
 
 }
 
-func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.DetectRequest) (int32, error) {
+func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (int32, error) {
 	var sum int
 
 	var score int32 = 0
 
-	// var exists bool
+	var exists bool
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
 											SELECT sum(amount)
 											FROM fraud.payments
 											WHERE account_id=$1 AND event_time + INTERVAL 1 WEEK <= NOW()`,
-		detreq.Payer.AccountID)
+		detReq.Payer.AccountID)
 	if row.Err() != nil {
 		return 100000, row.Err()
 	}
@@ -152,20 +152,20 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detreq *common.Detec
 		score += 40
 	}
 
-	// row = a.clickHouse.Conn.QueryRow(ctx, `
-	// 										SELECT EXISTS(
-	// 											SELECT 1
-	// 											FROM fraud.payments
-	// 											WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
-	// 	detreq.Payer.AccountID, detreq.Payee.MerchantID)
-	// if row.Err() != nil {
-	// 	return 100000, row.Err()
-	// }
-	// row.Scan(&exists)
+	row = a.clickHouse.Conn.QueryRow(ctx, `
+											SELECT EXISTS(
+												SELECT 1
+												FROM fraud.payments
+												WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
+		detReq.Payer.AccountID, detReq.Payee.MerchantID)
+	if row.Err() != nil {
+		return 100000, row.Err()
+	}
+	row.Scan(&exists)
 
-	// if !exists {
-	// 	score += 30
-	// }
+	if !exists {
+		score += 30
+	}
 
 	return score, nil
 }

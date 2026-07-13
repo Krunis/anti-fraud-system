@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"github.com/google/uuid"
 )
 
 func (a *AntiFraud) startDetector() {
@@ -35,36 +36,57 @@ func (a *AntiFraud) startDetector() {
 }
 
 func (a *AntiFraud) detectAndBan(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	tx, err := a.postgresDB.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("Failed to start DB transaction: %s", err)
+	}
+	defer tx.Rollback(ctx)
 
-	rows, err := a.postgresDB.Query(ctx, `
-					SELECT * FROM fraud_requests
+	rows, err := tx.Query(ctx, `
+					SELECT id, account_id, merchant_id, interval_since FROM fraud_requests
 					WHERE interval_since < NOW()
-					LIMIT 10`)
+					ORDER BY timestamp_req
+					LIMIT 1`)
 	if err != nil {
 		return err
 	}
 
 	for rows.Next() {
-		interval := &time.Time{}
+		var id uuid.UUID
 
 		row := &common.DetectRequest{
 			Payer: &common.PayerType{},
+			Payee: &common.PayeeType{},
 		}
 
-		if err := rows.Scan(&row.Payer.AccountID, &interval); err != nil {
-			log.Printf("Failed to scan row: %s", err)
+		interval := &time.Time{}
+
+		if err := rows.Scan(&id, &row.Payer.AccountID, &row.Payee.MerchantID, &interval); err != nil {
+			return fmt.Errorf("Failed to scan row: %s", err)
 		}
 
 		log.Printf("Aggregating for %d", row.Payer.AccountID)
 
 		scores, err := a.aggrFromClickHouse(ctx, row)
 		if err != nil {
-			return err
+			return fmt.Errorf("Failed to aggregate: %s", err)
 		}
 
 		log.Println(scores)
+
+		_, err = tx.Exec(ctx, `UPDATE fraud_requests
+								SET executed=TRUE
+								WHERE id=$1
+								`, id.String())
+		if err != nil{
+			return fmt.Errorf("Failed to update executed status: %s", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil{
+			return fmt.Errorf("Failed to commit: %s", err)
+		}
+
+
 
 		if scores >= 40 {
 			if err := a.banUser(ctx, row.Payer.AccountID); err != nil {
@@ -77,7 +99,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 }
 
 func (a *AntiFraud) banUser(ctx context.Context, userID int64) error {
-	if err := a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err(); err != nil{
+	if err := a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err(); err != nil {
 		return err
 	}
 
