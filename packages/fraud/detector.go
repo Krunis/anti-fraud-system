@@ -42,56 +42,51 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	rows, err := tx.Query(ctx, `
+	row := tx.QueryRow(ctx, `
 					SELECT id, account_id, merchant_id, interval_since FROM fraud_requests
-					WHERE interval_since < NOW()
-					ORDER BY timestamp_req
-					LIMIT 1`)
-	if err != nil {
-		return err
+					WHERE timestamp_req < NOW() AND executed=FALSE
+					ORDER BY timestamp_req`)
+
+	var id uuid.UUID
+
+	detReq := &common.DetectRequest{
+		Payer: &common.PayerType{},
+		Payee: &common.PayeeType{},
 	}
 
-	for rows.Next() {
-		var id uuid.UUID
+	if err := row.Scan(&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID, &detReq.IntervalSince); err != nil {
+		return fmt.Errorf("Failed to scan row: %s", err)
+	}
 
-		row := &common.DetectRequest{
-			Payer: &common.PayerType{},
-			Payee: &common.PayeeType{},
-		}
+	if detReq.IntervalSince == nil {
+		startTime := time.Unix(0, 0)
+		detReq.IntervalSince = &startTime
+	}
 
-		interval := &time.Time{}
+	log.Printf("Aggregating for %d", detReq.Payer.AccountID)
 
-		if err := rows.Scan(&id, &row.Payer.AccountID, &row.Payee.MerchantID, &interval); err != nil {
-			return fmt.Errorf("Failed to scan row: %s", err)
-		}
+	scores, err := a.aggrFromClickHouse(ctx, detReq)
+	if err != nil {
+		return fmt.Errorf("Failed to aggregate: %s", err)
+	}
 
-		log.Printf("Aggregating for %d", row.Payer.AccountID)
+	log.Println(scores)
 
-		scores, err := a.aggrFromClickHouse(ctx, row)
-		if err != nil {
-			return fmt.Errorf("Failed to aggregate: %s", err)
-		}
-
-		log.Println(scores)
-
-		_, err = tx.Exec(ctx, `UPDATE fraud_requests
+	_, err = tx.Exec(ctx, `UPDATE fraud_requests
 								SET executed=TRUE
 								WHERE id=$1
 								`, id.String())
-		if err != nil{
-			return fmt.Errorf("Failed to update executed status: %s", err)
-		}
+	if err != nil {
+		return fmt.Errorf("Failed to update executed status: %s", err)
+	}
 
-		if err := tx.Commit(ctx); err != nil{
-			return fmt.Errorf("Failed to commit: %s", err)
-		}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("Failed to commit: %s", err)
+	}
 
-
-
-		if scores >= 40 {
-			if err := a.banUser(ctx, row.Payer.AccountID); err != nil {
-				log.Printf("Failed to ban user: %d error: %s", row.Payer.AccountID, err)
-			}
+	if scores >= 40 {
+		if err := a.banUser(ctx, detReq.Payer.AccountID); err != nil {
+			log.Printf("Failed to ban user: %d error: %s", detReq.Payer.AccountID, err)
 		}
 	}
 

@@ -6,9 +6,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS fraud_requests(
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    account_id BIGINT,
-    merchant_id BIGINT,
+    account_id BIGINT NOT NULL,
+    merchant_id BIGINT NOT NULL,
     interval_since TIMESTAMPTZ,
-    timestamp_req TIMESTAMPTZ
-    executed BOOLEAN DEFAULT FALSE
+    timestamp_req TIMESTAMPTZ NOT NULL,
+    executed BOOLEAN NOT NULL DEFAULT FALSE
 );

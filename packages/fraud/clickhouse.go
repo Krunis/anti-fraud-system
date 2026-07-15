@@ -141,8 +141,8 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 	row := a.clickHouse.Conn.QueryRow(ctx, `
 											SELECT sum(amount)
 											FROM fraud.payments
-											WHERE account_id=$1 AND event_time + INTERVAL 1 WEEK <= NOW()`,
-		detReq.Payer.AccountID)
+											WHERE account_id = $1 AND event_time >= $2`,
+		detReq.Payer.AccountID, detReq.IntervalSince)
 	if row.Err() != nil {
 		return 100000, row.Err()
 	}
@@ -156,8 +156,8 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 											SELECT EXISTS(
 												SELECT 1
 												FROM fraud.payments
-												WHERE account_id=$1 AND merchant_id=$2 AND event_time BETWEEN NOW() - INTERVAL 1 MONTH AND NOW()`,
-		detReq.Payer.AccountID, detReq.Payee.MerchantID)
+												WHERE account_id = $1 AND merchant_id = $2 AND event_time >= $3)`,
+		detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
 	if row.Err() != nil {
 		return 100000, row.Err()
 	}
