@@ -132,11 +132,12 @@ func sendBatch(batch driver.Batch, count int){
 }
 
 func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (int32, error) {
-	var sum int
-
 	var score int32 = 0
 
+	var sum int
 	var exists bool
+	var uniqCountries int
+	var countPayments int
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
 											SELECT sum(amount)
@@ -164,6 +165,34 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 	row.Scan(&exists)
 
 	if !exists {
+		score += 30
+	}
+
+	row = a.clickHouse.Conn.QueryRow(ctx, `
+											SELECT COUNT(DISTINCT country)
+											FROM fraud.payments
+											WHERE account_id = $1 AND event_time >= $3`,
+											detReq.Payer.AccountID, detReq.IntervalSince)
+	if row.Err() != nil{
+		return 100000, row.Err()
+	}
+	row.Scan(&uniqCountries)
+
+	if uniqCountries > 3{
+		score += 30
+	}
+
+	row = a.clickHouse.Conn.QueryRow(ctx, `
+											SELECT COUNT(event_id)
+											FROM fraud.payments
+											WHERE account_id = $1 AND event_time >= $3`,
+											detReq.Payer.AccountID, detReq.IntervalSince)
+	if row.Err() != nil{
+		return 100000, row.Err()
+	}
+	row.Scan(&countPayments)
+
+	if countPayments > 10{
 		score += 30
 	}
 
