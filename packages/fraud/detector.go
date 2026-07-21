@@ -43,7 +43,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	defer tx.Rollback(ctx)
 
 	row := tx.QueryRow(ctx, `
-					SELECT id, account_id, merchant_id, interval_since FROM fraud_requests
+					SELECT id, account_id, merchant_id, interaction, interval_since FROM fraud_requests
 					WHERE timestamp_req < NOW() AND executed=FALSE
 					ORDER BY timestamp_req`)
 
@@ -54,7 +54,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		Payee: &common.PayeeType{},
 	}
 
-	if err := row.Scan(&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID, &detReq.IntervalSince); err != nil {
+	if err := row.Scan(&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID, &detReq.Interaction, &detReq.IntervalSince); err != nil {
 		return fmt.Errorf("Failed to scan row: %s", err)
 	}
 

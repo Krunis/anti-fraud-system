@@ -57,10 +57,20 @@ type PaymentEvent struct {
 	Context *ContextData `json:"context"`
 }
 
+type InteractionType string
+
+const(
+	PersonalInteraction InteractionType = "PERSONAL"
+	GeneralInteraction InteractionType = "GENERAL"
+	QuantitiesInteraction InteractionType = "QUANTITIES"
+)
+
 type DetectRequest struct{
 	Payer *PayerType `json:"payer"`
 
 	Payee *PayeeType `json:"payee"`
+
+	Interaction InteractionType
 
 	IntervalSince *time.Time `json:"interval"`
 }
