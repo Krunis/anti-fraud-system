@@ -67,6 +67,9 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 			if !ok {
 				return nil
 			}
+
+			var redisScores int
+
 			payment := &common.PaymentEvent{}
 
 			json.Unmarshal(msg.Value, &payment)
@@ -82,10 +85,10 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 				return err
 			}
 
-			score := considerScore(paymentStats)
+			considerScores(paymentStats, &redisScores)
 
-			if score > 120 {
-				if err := a.banUser(session.Context(), payment.Payer.AccountID); err != nil {
+			if redisScores > 120 {
+				if err := a.banUsers(session.Context(), []int64{payment.Payer.AccountID}); err != nil {
 					return err
 				}
 			}
@@ -99,17 +102,15 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 	}
 }
 
-func considerScore(paymentStats *PaymentStats) (score int) {
-	score = 0
-
+func considerScores(paymentStats *PaymentStats, redisScores *int) {
 	if paymentStats.failedLogins > 5 {
-		score += paymentStats.failedLogins * 10
+		*redisScores += paymentStats.failedLogins * 10
 	}
 	if len(paymentStats.paymentCountries) > 3 {
-		score += len(paymentStats.paymentCountries) * 15
+		*redisScores += len(paymentStats.paymentCountries) * 15
 	}
 	if len(paymentStats.paymentDevices) > 3 {
-		score += len(paymentStats.paymentDevices) * 15
+		*redisScores += len(paymentStats.paymentDevices) * 15
 	}
 
 	sumAmounts := 0.0
@@ -117,7 +118,5 @@ func considerScore(paymentStats *PaymentStats) (score int) {
 		sumAmounts += el
 	}
 
-	score += (int(sumAmounts) % 1000000) * 15
-
-	return score
+	*redisScores += (int(sumAmounts) % 1000000) * 15
 }

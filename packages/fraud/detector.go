@@ -63,14 +63,27 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		detReq.IntervalSince = &startTime
 	}
 
+	var toBan []int64
+
 	log.Printf("Aggregating for %d", detReq.Payer.AccountID)
 
-	scores, err := a.aggrFromClickHouse(ctx, detReq)
+	chScores, err := a.aggrFromClickHouse(ctx, detReq)
 	if err != nil {
 		return fmt.Errorf("Failed to aggregate: %s", err)
 	}
 
-	log.Println(scores)
+	log.Println(chScores)
+
+	switch detReq.Interaction {
+	case common.PayerInteraction:
+		toBan = append(toBan, detReq.Payer.AccountID)
+	case common.PayeeInteraction:
+		toBan = append(toBan, detReq.Payee.MerchantID)
+	case common.PersonalInteraction:
+		toBan = append(toBan, detReq.Payer.AccountID, detReq.Payee.MerchantID)
+	case common.GeneralInteraction:
+		// toBan = append(toBan, )
+	}
 
 	_, err = tx.Exec(ctx, `UPDATE fraud_requests
 								SET executed=TRUE
@@ -80,25 +93,30 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		return fmt.Errorf("Failed to update executed status: %s", err)
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("Failed to commit: %s", err)
+	if chScores >= 40 {
+		if err := a.banUsers(ctx, toBan); err != nil {
+			log.Printf("Failed to ban user: %d error: %s", detReq.Payer.AccountID, err)
+			return err
+		}
 	}
 
-	if scores >= 40 {
-		if err := a.banUser(ctx, detReq.Payer.AccountID); err != nil {
-			log.Printf("Failed to ban user: %d error: %s", detReq.Payer.AccountID, err)
-		}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("Failed to commit: %s", err)
 	}
 
 	return nil
 }
 
-func (a *AntiFraud) banUser(ctx context.Context, userID int64) error {
-	if err := a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err(); err != nil {
-		return err
+func (a *AntiFraud) banUsers(ctx context.Context, userIDs []int64) error {
+	//??????????????
+
+	for _, userID := range userIDs {
+		if err := a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err(); err != nil {
+			return err
+		}
 	}
 
-	log.Printf("Banned: %d", userID)
+	log.Printf("Banned: %d", userIDs)
 
 	return nil
 }

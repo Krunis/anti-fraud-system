@@ -130,18 +130,21 @@ func sendBatch(batch driver.Batch, count int) {
 
 }
 
-func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (int32, error) {
-	var score int32 = 0
+func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (int, error) {
+	var score int = 0
 
 	switch detReq.Interaction {
-	case common.QuantitiesInteraction:
+	case common.PayerInteraction:
 		var sum, uniqCountries, countPayments int
 
 		row := a.clickHouse.Conn.QueryRow(ctx, `
-											SELECT SUM(amount), COUNT(DISTINCT country), COUNT(event_id)
-											FROM fraud.payments
-											WHERE account_id = $1 AND event_time >= $2`,
-			detReq.Payer.AccountID, detReq.IntervalSince)
+												SELECT 
+													SUM(amount),
+													COUNT(DISTINCT country),
+													COUNT(event_id)
+												FROM fraud.payments
+												WHERE account_id = $1 AND event_time >= $2`,
+												detReq.Payer.AccountID, detReq.IntervalSince)
 		if row.Err() != nil {
 			return 100000, row.Err()
 		}
@@ -156,6 +159,24 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 		if countPayments > 10 {
 			score += 30
 		}
+	case common.PayeeInteraction:
+		var merchantId, merchantName string
+		var uniqueDevices, uniqueAccounts uint64
+
+		row := a.clickHouse.Conn.QueryRow(ctx, `
+		SELECT
+			merchant_id,
+			merchant_name,
+			UNIQ(device_id) as unique_devices,
+			UNIQ(account_id) as unique_accounts
+		FROM fraud.payments
+		WHERE merchant_id = $1 AND event_time >= $2
+		GROUP BY merchant_id, merchant_name
+		HAVING unique_devices / unique_accounts > 2
+		`, detReq.Payee.MerchantID, detReq.IntervalSince)
+
+		row.Scan(&merchantId, &merchantName, &uniqueDevices, &uniqueAccounts)
+
 	case common.PersonalInteraction:
 		var exists bool
 
@@ -174,7 +195,7 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 			score += 30
 		}
 	case common.GeneralInteraction:
-		
+
 	}
 
 	return score, nil

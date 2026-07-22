@@ -60,9 +60,11 @@ type PaymentEvent struct {
 type InteractionType string
 
 const(
+	PayerInteraction InteractionType = "PAYER"
+	PayeeInteraction InteractionType = "PAYEE"
 	PersonalInteraction InteractionType = "PERSONAL"
 	GeneralInteraction InteractionType = "GENERAL"
-	QuantitiesInteraction InteractionType = "QUANTITIES"
+	
 )
 
 type DetectRequest struct{
