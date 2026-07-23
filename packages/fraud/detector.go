@@ -10,6 +10,13 @@ import (
 	"github.com/google/uuid"
 )
 
+type TwoPhaseBan struct{
+	redisDB *common.Redis
+	txID string
+	userIDs []int64
+	ttl time.Duration
+}
+
 func (a *AntiFraud) startDetector() {
 	timer := time.NewTimer(time.Second * 3)
 	defer timer.Stop()
@@ -108,15 +115,67 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 }
 
 func (a *AntiFraud) banUsers(ctx context.Context, userIDs []int64) error {
-	//??????????????
+	t := &TwoPhaseBan{
+		redisDB: a.redisDB,
+		txID: fmt.Sprintf("%d", time.Now().UnixNano()),
+		userIDs: userIDs,
+		ttl: time.Minute * 5,
+	}
 
-	for _, userID := range userIDs {
-		if err := a.redisDB.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", time.Minute*15).Err(); err != nil {
-			return err
-		}
+	if err := t.prepareBan(ctx); err != nil{
+		return fmt.Errorf("failed to prepare bans: %s", err)
+	}
+
+	//validator
+
+	if err := t.commitBan(ctx); err != nil{
+return fmt.Errorf("CRITICAL ERROR to commit bans failed consistence: %s", err)
 	}
 
 	log.Printf("Banned: %d", userIDs)
 
 	return nil
 }
+
+func (t *TwoPhaseBan) prepareBan(ctx context.Context) error{
+	pipeline := t.redisDB.Pipeline()
+
+	for _, userID := range t.userIDs{
+		//?????? int64 -> string
+		key := fmt.Sprintf("ban:tx:%s:user:%d", t.txID, userID)
+
+		pipeline.Set(ctx, key, "PENDING", t.ttl)
+	}
+
+	pipeline.Set(ctx, fmt.Sprintf("ban:tx:%s:status", t.txID), "PREPARED", t.ttl)
+
+	_, err := pipeline.Exec(ctx)
+	if err != nil{
+		return err
+	}
+
+	return nil
+}
+
+func (t *TwoPhaseBan) commitBan(ctx context.Context) error{
+	pipeline := t.redisDB.Pipeline()
+
+	for _, userID := range t.userIDs {
+		pipeline.Set(ctx, fmt.Sprintf("fraud:ban:%d", userID), "1", 0)
+
+		tempKey := fmt.Sprintf("ban:tx:%s:user:%d", t.txID, userID)
+		pipeline.Del(ctx, tempKey)
+	}
+
+	pipeline.Del(ctx, fmt.Sprintf("ban:tx:%s:status", t.txID))
+
+	_, err := pipeline.Exec(ctx)
+	if err != nil{
+		return err
+	}
+
+	return nil
+}
+
+//rollback
+

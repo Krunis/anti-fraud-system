@@ -93,9 +93,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 }
 
 func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentEvent) error {
-	var pipeline redis.Pipeliner
-
-	pipeline = a.redisDB.Pipeline()
+	pipeline := a.redisDB.Pipeline()
 
 	pipeline.Incr(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID))
 	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID), time.Second*30)
