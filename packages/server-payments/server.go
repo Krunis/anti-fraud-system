@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strconv"
 	"sync"
 	"time"
 
@@ -121,7 +120,7 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 		ctx, cancel := context.WithTimeout(r.Context(), time.Second*2)
 		defer cancel()
 
-		if s.redisDB.CheckBan(ctx, strconv.Itoa(int(payment.Payer.AccountID))) {
+		if s.redisDB.CheckBan(ctx, payment.Payer.AccountID) {
 			http.Error(w, "banned", http.StatusForbidden)
 			log.Printf("HTTP Error: %s", err)
 			return
@@ -165,7 +164,7 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 			return
 		}
 
-		log.Printf("Detect request sent: %d", detReq.Payer.AccountID)
+		log.Printf("Detect request sent: %s", detReq.Payer.AccountID)
 
 		w.WriteHeader(http.StatusCreated)
 	}

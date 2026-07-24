@@ -91,7 +91,7 @@ func ValidatePaymentEvent(event *common.PaymentEvent) error {
     if event.Payer == nil {
         errors = append(errors, &ValidationError{Field: "Payer", Message: "cannot be nil"})
     } else {
-        if event.Payer.AccountID == 0 {
+        if event.Payer.AccountID == "" {
             errors = append(errors, &ValidationError{Field: "Payer.AccountID", Message: "cannot be empty"})
         }
     }
@@ -100,7 +100,7 @@ func ValidatePaymentEvent(event *common.PaymentEvent) error {
     if event.Payee == nil {
         errors = append(errors, &ValidationError{Field: "Payee", Message: "cannot be nil"})
     } else {
-        if event.Payee.MerchantID == 0 {
+        if event.Payee.MerchantID == "" {
             errors = append(errors, &ValidationError{Field: "Payee.MerchantID", Message: "cannot be empty"})
         } 
 

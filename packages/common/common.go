@@ -25,11 +25,11 @@ type TransactionType struct {
 }
 
 type PayerType struct {
-	AccountID int64 `json:"account_id"`
+	AccountID string `json:"account_id"`
 }
 
 type PayeeType struct {
-	MerchantID   int64 `json:"merchant_id"`
+	MerchantID   string `json:"merchant_id"`
 	MerchantName string `json:"merchant_name"`
 	Country      string `json:"country"`
 }

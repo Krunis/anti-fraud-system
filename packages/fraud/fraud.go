@@ -95,8 +95,8 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentEvent) error {
 	pipeline := a.redisDB.Pipeline()
 
-	pipeline.Incr(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID))
-	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID), time.Second*30)
+	pipeline.Incr(ctx, fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID))
+	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID), time.Second*30)
 	
 	ipDB := ip2country.NewIPCountryDB("../../countries.csv")
 	country, err := ipDB.GetCountry(payment.Context.IP)
@@ -105,14 +105,14 @@ func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentE
 		country = payment.Context.IP
 	}
 
-	pipeline.SAdd(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentCountries, payment.Payer.AccountID), country)
-	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentCountries, payment.Payer.AccountID), time.Minute*10)
+	pipeline.SAdd(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentCountries, payment.Payer.AccountID), country)
+	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentCountries, payment.Payer.AccountID), time.Minute*10)
 
-	pipeline.SAdd(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentDevices, payment.Payer.AccountID), payment.Context.DeviceID)
-	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentDevices, payment.Payer.AccountID), time.Minute*5)
+	pipeline.SAdd(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentDevices, payment.Payer.AccountID), payment.Context.DeviceID)
+	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentDevices, payment.Payer.AccountID), time.Minute*5)
 
-	pipeline.LPush(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentAmounts, payment.Payer.AccountID), payment.Transaction.Amount)
-	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentAmounts, payment.Payer.AccountID), time.Minute*5)
+	pipeline.LPush(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentAmounts, payment.Payer.AccountID), payment.Transaction.Amount)
+	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentAmounts, payment.Payer.AccountID), time.Minute*5)
 
 	cmds, err := pipeline.Exec(a.lifecycle.Ctx)
 	if err != nil {
@@ -131,13 +131,13 @@ func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentE
 func (a *AntiFraud) getStatsFromRedis(ctx context.Context, payment *common.PaymentEvent) (*PaymentStats, error) {
 	pipeline := a.redisDB.Pipeline()
 
-	failedLogins := pipeline.Get(ctx, fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID))
+	failedLogins := pipeline.Get(ctx, fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID))
 
-	paymentCountries := pipeline.SMembers(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentCountries, payment.Payer.AccountID))
+	paymentCountries := pipeline.SMembers(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentCountries, payment.Payer.AccountID))
 
-	paymentDevices := pipeline.SMembers(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentDevices, payment.Payer.AccountID))
+	paymentDevices := pipeline.SMembers(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentDevices, payment.Payer.AccountID))
 
-	paymentAmounts := pipeline.LRange(ctx, fmt.Sprintf("fraud:%s%d", prefixPaymentAmounts, payment.Payer.AccountID), 0, -1)
+	paymentAmounts := pipeline.LRange(ctx, fmt.Sprintf("fraud:%s%s", prefixPaymentAmounts, payment.Payer.AccountID), 0, -1)
 
 	_, err := pipeline.Exec(ctx)
 	if err != nil && err != redis.Nil {
@@ -146,7 +146,7 @@ func (a *AntiFraud) getStatsFromRedis(ctx context.Context, payment *common.Payme
 
 	failedLoginsInt, err := failedLogins.Int()
 	if err != nil {
-		log.Printf("Wrong type in Redis. Key: %s", fmt.Sprintf("fraud:%s%d", prefixFailedLogins, payment.Payer.AccountID))
+		log.Printf("Wrong type in Redis. Key: %s", fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID))
 	}
 
 	return &PaymentStats{
