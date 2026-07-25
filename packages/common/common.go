@@ -72,9 +72,9 @@ type DetectRequest struct{
 
 	Payee *PayeeType `json:"payee"`
 
-	Interaction InteractionType
+	Interaction InteractionType `json:"interaction"`
 
-	IntervalSince *time.Time `json:"interval"`
+	IntervalSince *time.Time `json:"interval_since"`
 }
 
 type Redis struct {

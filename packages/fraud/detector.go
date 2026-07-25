@@ -86,10 +86,8 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		toBan = append(toBan, detReq.Payer.AccountID)
 	case common.PayeeInteraction:
 		toBan = append(toBan, detReq.Payee.MerchantID)
-	case common.PersonalInteraction:
+	case common.PersonalInteraction, common.GeneralInteraction:
 		toBan = append(toBan, detReq.Payer.AccountID, detReq.Payee.MerchantID)
-	case common.GeneralInteraction:
-		// toBan = append(toBan, )
 	}
 
 	_, err = tx.Exec(ctx, `UPDATE fraud_requests
@@ -162,7 +160,8 @@ func (t *TwoPhaseBan) prepareBan(ctx context.Context) error{
 }
 
 func (t *TwoPhaseBan) validateUsers(ctx context.Context) error{
-	//??????????
+	
+
 	return nil
 }
 

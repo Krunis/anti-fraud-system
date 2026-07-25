@@ -156,6 +156,12 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 		}
 		defer r.Body.Close()
 
+		if err := ValidateDetectRequest(detReq); err != nil{
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			log.Printf("HTTP Error: %s", err)
+			return
+		} 
+
 		dbCtx, cancel := context.WithTimeout(r.Context(), time.Second*1)
 		defer cancel()
 
