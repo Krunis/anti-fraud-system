@@ -195,7 +195,31 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 			score += 30
 		}
 	case common.GeneralInteraction:
+		var deviceID string
 
+		var uniqAccounts, uniqIPs int
+
+		row := a.clickHouse.Conn.QueryRow(ctx, `
+												SELECT 
+													device_id,
+													uniq(account_id) AS unique_accounts,
+													uniq(ip) AS unique_ips,
+												FROM fraud_table
+												WHERE event_time >= $1
+												GROUP BY device_id
+												HAVING unique_accounts > 3`,
+												detReq.IntervalSince)	
+		if row.Err() != nil{
+			return 100000, row.Err()
+		}
+
+		row.Scan(&deviceID, &uniqAccounts, &uniqIPs)
+
+		log.Printf("From clickhouse: with %s device id %d unique accounts with %d unique IPs, banning...", deviceID, uniqAccounts, uniqIPs)
+
+		//ban device_id
+
+		//rework returning
 	}
 
 	return score, nil
