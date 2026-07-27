@@ -119,4 +119,6 @@ func considerScores(paymentStats *PaymentStats, redisScores *int) {
 	}
 
 	*redisScores += (int(sumAmounts) % 1000000) * 15
+
+
 }

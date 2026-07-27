@@ -9,40 +9,21 @@ import (
 	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
-// func (a *AntiFraud) sendInClickHouse(ctx context.Context, payment *common.PaymentEvent) error {
-// 	err := a.clickHouse.Conn.Exec(ctx, `
-// 									INSERT INTO fraud.events (
-// 										event_id, event_time, direction,
-// 										amount, currency, transaction_type,
-// 										account_id, merchant_id, merchant_name, country,
-// 										channel, device_id, ip, user_agent
-// 									) VALUES (
-// 										@event_id, @event_time, @direction,
-// 										@amount, @currency, @tx_type,
-// 										@account_id, @merchant_id, @merchant_name, @country,
-// 										@channel, @device_id, @ip, @user_agent
-// 									)`,
-// 		clickhouse.Named("event_id", payment.EventID),
-// 		clickhouse.Named("event_time", payment.EventTime),
-// 		clickhouse.Named("direction", payment.Direction),
-// 		clickhouse.Named("amount", payment.Transaction.Amount),
-// 		clickhouse.Named("currency", payment.Transaction.Currency),
-// 		clickhouse.Named("tx_type", payment.Transaction.Type),
-// 		clickhouse.Named("account_id", payment.Payer.AccountID),
-// 		clickhouse.Named("merchant_id", payment.Payee.MerchantID),
-// 		clickhouse.Named("merchant_name", payment.Payee.MerchantName),
-// 		clickhouse.Named("country", payment.Payee.Country),
-// 		clickhouse.Named("channel", payment.Context.Channel),
-// 		clickhouse.Named("device_id", payment.Context.DeviceID),
-// 		clickhouse.Named("ip", payment.Context.IP),
-// 		clickhouse.Named("user_agent", payment.Context.UserAgent),
-// 	)
-// 	if err != nil {
-// 		return err
-// 	}
+type FraudCheckResult struct{
+	Score int
+	Reasons []string
 
-// 	return nil
-// }
+	BanDetails []*BanDetail
+}
+
+type BanDetail struct{
+	BanType string
+	Targets []string
+	Reason string
+	Duration string
+}
+
+
 
 func (a *AntiFraud) pollerToClickHouse() {
 	timer := time.NewTimer(time.Second * 5)
@@ -135,7 +116,20 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 
 	switch detReq.Interaction {
 	case common.PayerInteraction:
-		var sum, uniqCountries, countPayments int
+		a.checkPayerInteraction()
+	case common.PayeeInteraction:
+		a.checkPayeeInteraction()
+	case common.PersonalInteraction:
+		a.checkPersonalInteraction()
+	case common.GeneralInteraction:
+		a.checkGeneralInteraction()
+	}
+
+	return score, nil
+}
+
+func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.DetectRequest) error{
+	var sum, uniqCountries, countPayments int
 
 		row := a.clickHouse.Conn.QueryRow(ctx, `
 												SELECT 
@@ -143,8 +137,8 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 													COUNT(DISTINCT country),
 													COUNT(event_id)
 												FROM fraud.payments
-												WHERE account_id = $1 AND event_time >= $2`,
-												detReq.Payer.AccountID, detReq.IntervalSince)
+												WHERE account_id = $1 AND event_time >= $2
+												`, detReq.Payer.AccountID, detReq.IntervalSince)
 		if row.Err() != nil {
 			return 100000, row.Err()
 		}
@@ -159,33 +153,37 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 		if countPayments > 10 {
 			score += 30
 		}
-	case common.PayeeInteraction:
-		var merchantId, merchantName string
+}
+
+func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, ) error{
+	var merchantId, merchantName string
 		var uniqueDevices, uniqueAccounts uint64
 
 		row := a.clickHouse.Conn.QueryRow(ctx, `
-		SELECT
-			merchant_id,
-			merchant_name,
-			UNIQ(device_id) as unique_devices,
-			UNIQ(account_id) as unique_accounts
-		FROM fraud.payments
-		WHERE merchant_id = $1 AND event_time >= $2
-		GROUP BY merchant_id, merchant_name
-		HAVING unique_devices / unique_accounts > 2
-		`, detReq.Payee.MerchantID, detReq.IntervalSince)
+												SELECT
+													merchant_id,
+													merchant_name,
+													UNIQ(device_id) as unique_devices,
+													UNIQ(account_id) as unique_accounts
+												FROM fraud.payments
+												WHERE merchant_id = $1 AND event_time >= $2
+												GROUP BY merchant_id, merchant_name
+												HAVING unique_devices / unique_accounts > 2
+												`, detReq.Payee.MerchantID, detReq.IntervalSince)
 
 		row.Scan(&merchantId, &merchantName, &uniqueDevices, &uniqueAccounts)
 
-	case common.PersonalInteraction:
-		var exists bool
+}
+
+func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, ) error{
+	var exists bool
 
 		row := a.clickHouse.Conn.QueryRow(ctx, `
-											SELECT EXISTS(
-												SELECT 1
-												FROM fraud.payments
-												WHERE account_id = $1 AND merchant_id = $2 AND event_time >= $3)`,
-			detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
+												SELECT EXISTS(
+													SELECT 1
+													FROM fraud.payments
+													WHERE account_id = $1 AND merchant_id = $2 AND event_time >= $3)
+													`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
 		if row.Err() != nil {
 			return 100000, row.Err()
 		}
@@ -194,12 +192,14 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 		if !exists {
 			score += 30
 		}
-	case common.GeneralInteraction:
-		var deviceID string
+}
+
+func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, ) error{
+	var deviceID string
 
 		var uniqAccounts, uniqIPs int
 
-		row := a.clickHouse.Conn.QueryRow(ctx, `
+		rows, err := a.clickHouse.Conn.Query(ctx, `
 												SELECT 
 													device_id,
 													uniq(account_id) AS unique_accounts,
@@ -209,8 +209,8 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 												GROUP BY device_id
 												HAVING unique_accounts > 3`,
 												detReq.IntervalSince)	
-		if row.Err() != nil{
-			return 100000, row.Err()
+		if err != nil{
+			return 100000, err
 		}
 
 		row.Scan(&deviceID, &uniqAccounts, &uniqIPs)
@@ -220,7 +220,5 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 		//ban device_id
 
 		//rework returning
-	}
-
-	return score, nil
 }
+
