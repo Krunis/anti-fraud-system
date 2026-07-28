@@ -2,6 +2,7 @@ package fraud
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -9,21 +10,19 @@ import (
 	"github.com/Krunis/anti-fraud-system/packages/common"
 )
 
-type FraudCheckResult struct{
-	Score int
+type FraudCheckResult struct {
+	Score   int
 	Reasons []string
 
 	BanDetails []*BanDetail
 }
 
-type BanDetail struct{
-	BanType string
-	Targets []string
-	Reason string
+type BanDetail struct {
+	BanType  string
+	Targets  []string
+	Reason   string
 	Duration string
 }
-
-
 
 func (a *AntiFraud) pollerToClickHouse() {
 	timer := time.NewTimer(time.Second * 5)
@@ -112,26 +111,26 @@ func sendBatch(batch driver.Batch, count int) {
 }
 
 func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (int, error) {
-	var score int = 0
-
 	switch detReq.Interaction {
 	case common.PayerInteraction:
-		a.checkPayerInteraction()
+		a.checkPayerInteraction(ctx, detReq)
 	case common.PayeeInteraction:
-		a.checkPayeeInteraction()
+		a.checkPayeeInteraction(ctx, detReq)
 	case common.PersonalInteraction:
-		a.checkPersonalInteraction()
+		a.checkPersonalInteraction(ctx, detReq)
 	case common.GeneralInteraction:
-		a.checkGeneralInteraction()
+		a.checkGeneralInteraction(ctx, detReq)
 	}
 
 	return score, nil
 }
 
-func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.DetectRequest) error{
+func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
+	fraudResult := &FraudCheckResult{}
+
 	var sum, uniqCountries, countPayments int
 
-		row := a.clickHouse.Conn.QueryRow(ctx, `
+	row := a.clickHouse.Conn.QueryRow(ctx, `
 												SELECT 
 													SUM(amount),
 													COUNT(DISTINCT country),
@@ -139,27 +138,29 @@ func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.De
 												FROM fraud.payments
 												WHERE account_id = $1 AND event_time >= $2
 												`, detReq.Payer.AccountID, detReq.IntervalSince)
-		if row.Err() != nil {
-			return 100000, row.Err()
-		}
-		row.Scan(&sum, &uniqCountries, &countPayments)
 
-		if sum >= 500000 {
-			score += 40
-		}
-		if uniqCountries > 3 {
-			score += 30
-		}
-		if countPayments > 10 {
-			score += 30
-		}
+	if err := row.Scan(&sum, &uniqCountries, &countPayments); err != nil {
+		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
+	}
+
+	if sum >= 500000 {
+		fraudResult.Score += 40
+	}
+	if uniqCountries > 3 {
+		fraudResult.Score += 30
+	}
+	if countPayments > 10 {
+		fraudResult.Score += 30
+	}
 }
 
-func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, ) error{
-	var merchantId, merchantName string
-		var uniqueDevices, uniqueAccounts uint64
+func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
+	fraudResult := &FraudCheckResult{}
 
-		row := a.clickHouse.Conn.QueryRow(ctx, `
+	var merchantId, merchantName string
+	var uniqueDevices, uniqueAccounts uint64
+
+	row := a.clickHouse.Conn.QueryRow(ctx, `
 												SELECT
 													merchant_id,
 													merchant_name,
@@ -171,35 +172,41 @@ func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, ) error{
 												HAVING unique_devices / unique_accounts > 2
 												`, detReq.Payee.MerchantID, detReq.IntervalSince)
 
-		row.Scan(&merchantId, &merchantName, &uniqueDevices, &uniqueAccounts)
+	if err := row.Scan(&merchantId, &merchantName, &uniqueDevices, &uniqueAccounts); err != nil {
+		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
+	}
 
+	fraudResult.Score += 30
 }
 
-func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, ) error{
+func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
+	fraudResult := &FraudCheckResult{}
+
 	var exists bool
 
-		row := a.clickHouse.Conn.QueryRow(ctx, `
+	row := a.clickHouse.Conn.QueryRow(ctx, `
 												SELECT EXISTS(
 													SELECT 1
 													FROM fraud.payments
-													WHERE account_id = $1 AND merchant_id = $2 AND event_time >= $3)
+													WHERE account_id = $1 AND merchant_id = $2 AND event_time >= $3
+												)
 													`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
-		if row.Err() != nil {
-			return 100000, row.Err()
-		}
-		row.Scan(&exists)
 
-		if !exists {
-			score += 30
-		}
+	if err := row.Scan(&exists); err != nil {
+		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
+	}
+
+	if exists {
+		fraudResult.Score += 30
+	}
 }
 
-func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, ) error{
+func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
 	var deviceID string
 
-		var uniqAccounts, uniqIPs int
+	var uniqAccounts, uniqIPs int
 
-		rows, err := a.clickHouse.Conn.Query(ctx, `
+	rows, err := a.clickHouse.Conn.Query(ctx, `
 												SELECT 
 													device_id,
 													uniq(account_id) AS unique_accounts,
@@ -208,17 +215,26 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, ) error{
 												WHERE event_time >= $1
 												GROUP BY device_id
 												HAVING unique_accounts > 3`,
-												detReq.IntervalSince)	
-		if err != nil{
-			return 100000, err
-		}
+		detReq.IntervalSince)
+	if err != nil {
+		return nil, err
+	}
 
-		row.Scan(&deviceID, &uniqAccounts, &uniqIPs)
+	for rows.Next(){
+		if err := rows.Scan(&deviceID, &uniqAccounts, &uniqIPs); err != nil{
+			log.Printf("failed to scan row while %s interaction", detReq.Interaction)
+		}
 
 		log.Printf("From clickhouse: with %s device id %d unique accounts with %d unique IPs, banning...", deviceID, uniqAccounts, uniqIPs)
 
-		//ban device_id
 
-		//rework returning
+	}
+
+	
+
+	
+
+	//ban device_id
+
+	//rework returning
 }
-

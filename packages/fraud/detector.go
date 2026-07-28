@@ -99,7 +99,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	}
 
 	if chScores >= 40 {
-		if err := a.banUsers(ctx, toBan); err != nil {
+		if err := a.banByUserIDs(ctx, toBan); err != nil {
 			log.Printf("Failed to ban user: %s error: %s", detReq.Payer.AccountID, err)
 			return err
 		}
@@ -112,7 +112,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	return nil
 }
 
-func (a *AntiFraud) banUsers(ctx context.Context, userIDs []string) error {
+func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string) error {
 	t := &TwoPhaseBan{
 		redisDB: a.redisDB,
 		txID: fmt.Sprintf("%d", time.Now().UnixNano()),
@@ -132,12 +132,16 @@ func (a *AntiFraud) banUsers(ctx context.Context, userIDs []string) error {
 	}
 
 	if err := t.commitBan(ctx); err != nil{
-return fmt.Errorf("CRITICAL ERROR to commit bans failed consistence: %s", err)
+		return fmt.Errorf("CRITICAL ERROR to commit bans failed consistence: %s", err)
 	}
 
 	log.Printf("Banned: %s", userIDs)
 
 	return nil
+}
+
+func (a *AntiFraud) banByDevices(ctx context.Context, devices []string) error{
+
 }
 
 func (t *TwoPhaseBan) prepareBan(ctx context.Context) error{
