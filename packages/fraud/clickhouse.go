@@ -182,23 +182,40 @@ func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, detReq *common.De
 func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
 	fraudResult := &FraudCheckResult{}
 
-	var exists bool
+	var txsCount, activeDays uint64
+
+	var totalVolume, netFlow, growthRatio float64
+
+	var timeSpan time.Duration
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
-												SELECT EXISTS(
-													SELECT 1
-													FROM fraud.payments
-													WHERE account_id = $1 AND merchant_id = $2 AND event_time >= $3
-												)
-													`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
-
-	if err := row.Scan(&exists); err != nil {
+											SELECT
+												COUNT() as txs_count,
+												SUM(amount) as total_volume,
+												sumIf(amount, account_id = $1) - sumIf(amount, account_id = $2) as net_flow,
+												uniqExact(toYYYYMMDD(event_time)) as active_days,
+												max(event_time) - min(event_time) as time_span,
+												max(amount) / min(amount) as growth_ratio
+											FROM fraud.payments
+											WHERE event_time >= $3 
+												AND (account_id = $1 AND merchant_id = $2
+														OR account_id = $2 AND merchant_id = $1)
+											GROUP BY account_id, merchant_id
+											HAVING
+												txs_count > 20
+												AND total_volume >= 3000000
+												AND ABS(net_flow) < total_volume * 0.05
+												AND active_days >= 5
+												AND growth_ratio >= 2.5
+											`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
+	if err := row.Scan(&txsCount, &totalVolume, &netFlow, &activeDays, &timeSpan, &growthRatio); err != nil {
 		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
 	}
 
-	if exists {
-		fraudResult.Score += 30
-	}
+	log.Printf("Found fraud between %s and %s with %d transactions.\nTotal volume: %d.\nNet flow: %d\nTime span %v active %d",
+				detReq.Payer.AccountID, detReq.Payee.MerchantID, txsCount, totalVolume, netFlow, timeSpan, activeDays)
+
+	//ban
 }
 
 func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
