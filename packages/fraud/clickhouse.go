@@ -46,7 +46,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 			timer.Reset(time.Second * 5)
 		case payment, ok := <-a.paymentCh:
 			if !ok {
-				log.Println("Sending batch by fail to get from channel")
+				log.Println("While sending batch fail to get from channel")
 
 				sendBatch(batch, count)
 
@@ -215,10 +215,13 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 	log.Printf("Found fraud between %s and %s with %d transactions.\nTotal volume: %d.\nNet flow: %d\nTime span %v active %d",
 				detReq.Payer.AccountID, detReq.Payee.MerchantID, txsCount, totalVolume, netFlow, timeSpan, activeDays)
 
-	//ban
 }
 
 func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
+	fraudResult := &FraudCheckResult{}
+
+	deviceIDs := []string{}
+
 	var deviceID string
 
 	var uniqAccounts, uniqIPs int
@@ -244,14 +247,18 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 
 		log.Printf("From clickhouse: with %s device id %d unique accounts with %d unique IPs, banning...", deviceID, uniqAccounts, uniqIPs)
 
-
+		deviceIDs = append(deviceIDs, deviceID)
 	}
 
-	
-
-	
-
-	//ban device_id
+	userIDs, err := a.userIDsByDevices(ctx, deviceIDs)
+	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
+		BanType: , 
+		Targets: userIDs,
+		Reason: "too many account with devices" 
+	})
+	if err != nil{
+		return &FraudCheckResult{}, err
+	}
 
 	//rework returning
 }

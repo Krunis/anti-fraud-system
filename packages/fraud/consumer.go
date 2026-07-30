@@ -74,8 +74,6 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 
 			json.Unmarshal(msg.Value, &payment)
 
-			a.paymentCh <- payment
-
 			if err := a.refreshInRedis(session.Context(), payment); err != nil {
 				return err
 			}
@@ -92,6 +90,8 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 					return err
 				}
 			}
+
+			a.paymentCh <- payment
 
 			session.MarkMessage(msg, "")
 		case <-session.Context().Done():

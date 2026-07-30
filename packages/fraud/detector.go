@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 )
 
-type TwoPhaseBan struct{
+type TwoPhaseBan struct {
 	redisDB *common.Redis
-	txID string
+	txID    string
 	userIDs []string
-	ttl time.Duration
+	ttl     time.Duration
 }
 
 func (a *AntiFraud) startDetector() {
@@ -115,23 +115,23 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string) error {
 	t := &TwoPhaseBan{
 		redisDB: a.redisDB,
-		txID: fmt.Sprintf("%d", time.Now().UnixNano()),
+		txID:    fmt.Sprintf("%d", time.Now().UnixNano()),
 		userIDs: userIDs,
-		ttl: time.Minute * 5,
+		ttl:     time.Minute * 5,
 	}
 
-	if err := t.prepareBan(ctx); err != nil{
+	if err := t.prepareBan(ctx); err != nil {
 		return fmt.Errorf("failed to prepare bans: %s", err)
 	}
 
-	if err := t.validateUsers(ctx); err != nil{
+	if err := t.validateUsers(ctx); err != nil {
 		log.Printf("validation error: %s", err)
 
 		err := t.rollbackBans(ctx)
 		return fmt.Errorf("failed to rollback bans: %s", err)
 	}
 
-	if err := t.commitBan(ctx); err != nil{
+	if err := t.commitBan(ctx); err != nil {
 		return fmt.Errorf("CRITICAL ERROR to commit bans failed consistence: %s", err)
 	}
 
@@ -140,14 +140,37 @@ func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string) error {
 	return nil
 }
 
-func (a *AntiFraud) banByDevices(ctx context.Context, devices []string) error{
+func (a *AntiFraud) userIDsByDevices(ctx context.Context, devices []string) ([]string, error) {
+	userIDs := make([]string, 0, len(devices))
 
+	var userID string
+
+	for _, device := range devices {
+		rows, err := a.postgresDB.Query(ctx, `
+								SELECT account_id
+								FROM payment_events
+								WHERE device_id = $1
+								`, device)
+		if err != nil{
+			log.Printf("failed to get account id from psotgres: %s", err)
+		}
+		
+		for rows.Next(){
+			if err := rows.Scan(&userID); err != nil{
+				log.Printf("failed to scan account_id row: %s", err)
+			}
+
+			userIDs = append(userIDs, userID)
+		}
+	}
+
+	return userIDs, nil
 }
 
-func (t *TwoPhaseBan) prepareBan(ctx context.Context) error{
+func (t *TwoPhaseBan) prepareBan(ctx context.Context) error {
 	pipeline := t.redisDB.Pipeline()
 
-	for _, userID := range t.userIDs{
+	for _, userID := range t.userIDs {
 		key := fmt.Sprintf("ban:tx:%s:user:%s", t.txID, userID)
 
 		pipeline.Set(ctx, key, "PENDING", t.ttl)
@@ -156,20 +179,19 @@ func (t *TwoPhaseBan) prepareBan(ctx context.Context) error{
 	pipeline.Set(ctx, fmt.Sprintf("ban:tx:%s:status", t.txID), "PREPARED", t.ttl)
 
 	_, err := pipeline.Exec(ctx)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (t *TwoPhaseBan) validateUsers(ctx context.Context) error{
-	
+func (t *TwoPhaseBan) validateUsers(ctx context.Context) error {
 
 	return nil
 }
 
-func (t *TwoPhaseBan) commitBan(ctx context.Context) error{
+func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
 	pipeline := t.redisDB.Pipeline()
 
 	for _, userID := range t.userIDs {
@@ -182,14 +204,14 @@ func (t *TwoPhaseBan) commitBan(ctx context.Context) error{
 	pipeline.Del(ctx, fmt.Sprintf("ban:tx:%s:status", t.txID))
 
 	_, err := pipeline.Exec(ctx)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (t *TwoPhaseBan) rollbackBans(ctx context.Context) error{
+func (t *TwoPhaseBan) rollbackBans(ctx context.Context) error {
 	pipeline := t.redisDB.Pipeline()
 
 	for _, userID := range t.userIDs {
@@ -200,10 +222,9 @@ func (t *TwoPhaseBan) rollbackBans(ctx context.Context) error{
 	pipeline.Del(ctx, fmt.Sprintf("ban:tx:%s:status", t.txID))
 
 	_, err := pipeline.Exec(ctx)
-	if err != nil{
+	if err != nil {
 		return err
 	}
 
 	return nil
 }
-

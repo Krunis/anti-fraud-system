@@ -126,6 +126,12 @@ func (s *ServerPayments) paymentHandler(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
+		if err := s.paymentEventInPostgres(ctx, payment); err != nil{
+			log.Println(err)
+			http.Error(w, "try again later", http.StatusInternalServerError)
+			return
+		}
+
 		select {
 		case s.paymentsToKafka <- payment:
 			w.WriteHeader(http.StatusCreated)
@@ -156,17 +162,18 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 		}
 		defer r.Body.Close()
 
-		if err := ValidateDetectRequest(detReq); err != nil{
+		if err := ValidateDetectRequest(detReq); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			log.Printf("HTTP Error: %s", err)
 			return
-		} 
+		}
 
 		dbCtx, cancel := context.WithTimeout(r.Context(), time.Second*1)
 		defer cancel()
 
 		if err := s.detReqInPostgres(dbCtx, detReq); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Println(err)
+			http.Error(w, "try again later", http.StatusInternalServerError)
 			return
 		}
 
@@ -178,11 +185,50 @@ func (s *ServerPayments) detectRequestHandler(w http.ResponseWriter, r *http.Req
 
 func (s *ServerPayments) detReqInPostgres(ctx context.Context, detReq *common.DetectRequest) error {
 	_, err := s.postgresDB.Exec(ctx, `
-									INSERT INTO fraud_requests(account_id, merchant_id, interaction, interval_since, timestamp_req)
-									VALUES($1, $2, $3, $4)`,
+									INSERT INTO fraud_requests(
+										account_id,
+										merchant_id, 
+										interaction, 
+										interval_since, 
+										timestamp_req
+									)
+									VALUES($1, $2, $3, $4)
+									`,
 									detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.Interaction, detReq.IntervalSince, time.Now())
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to insert detect req in postgres: %s", err)
+	}
+
+	return nil
+}
+
+func (s *ServerPayments) paymentEventInPostgres(ctx context.Context, payment *common.PaymentEvent) error {
+	_, err := s.postgresDB.Exec(ctx, `
+										INSERT INTO fraud_requests(
+											event_id,
+											event_time,
+											direction,
+											amount,
+											currency,
+											transaction_type,
+											account_id,
+											merchant_id,
+											merchant_name,
+											country,
+											channel,
+											device_id,
+											ip TEXT, 
+											user_agent
+										)
+										VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+										`,
+										payment.EventID, payment.EventTime, payment.Direction, payment.Transaction.Amount,
+										payment.Transaction.Currency, payment.Transaction.Type, payment.Payer.AccountID,
+										payment.Payee.MerchantID, payment.Payee.MerchantName, payment.Payee.Country,
+										payment.Context.Channel, payment.Context.DeviceID, payment.Context.IP,
+										payment.Context.UserAgent)
+	if err != nil {
+		return fmt.Errorf("failed to insert payment in postgres: %s", err)
 	}
 
 	return nil
