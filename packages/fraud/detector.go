@@ -74,20 +74,18 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 
 	log.Printf("Aggregating for %s", detReq.Payer.AccountID)
 
-	chScores, err := a.aggrFromClickHouse(ctx, detReq)
+	checkResult, err := a.aggrFromClickHouse(ctx, detReq)
 	if err != nil {
 		return fmt.Errorf("Failed to aggregate: %s", err)
 	}
 
-	log.Println(chScores)
+	if checkResult
 
 	switch detReq.Interaction {
 	case common.PayerInteraction:
 		toBan = append(toBan, detReq.Payer.AccountID)
 	case common.PayeeInteraction:
 		toBan = append(toBan, detReq.Payee.MerchantID)
-	case common.PersonalInteraction, common.GeneralInteraction:
-		toBan = append(toBan, detReq.Payer.AccountID, detReq.Payee.MerchantID)
 	}
 
 	_, err = tx.Exec(ctx, `UPDATE fraud_requests
@@ -98,7 +96,9 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		return fmt.Errorf("Failed to update executed status: %s", err)
 	}
 
-	if chScores >= 40 {
+	if checkResult == nil ||{
+		if
+
 		if err := a.banByUserIDs(ctx, toBan); err != nil {
 			log.Printf("Failed to ban user: %s error: %s", detReq.Payer.AccountID, err)
 			return err

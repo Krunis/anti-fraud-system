@@ -2,6 +2,7 @@ package fraud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -13,7 +14,7 @@ import (
 type FraudCheckResult struct {
 	Score   int
 	Reasons []string
-
+	ShouldBan bool
 	BanDetails []*BanDetail
 }
 
@@ -110,48 +111,48 @@ func sendBatch(batch driver.Batch, count int) {
 
 }
 
-func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (int, error) {
+func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
 	switch detReq.Interaction {
 	case common.PayerInteraction:
-		a.checkPayerInteraction(ctx, detReq)
+		return a.checkPayerInteraction(ctx, detReq)
 	case common.PayeeInteraction:
-		a.checkPayeeInteraction(ctx, detReq)
+		return a.checkPayeeInteraction(ctx, detReq)
 	case common.PersonalInteraction:
-		a.checkPersonalInteraction(ctx, detReq)
+		return a.checkPersonalInteraction(ctx, detReq)
 	case common.GeneralInteraction:
-		a.checkGeneralInteraction(ctx, detReq)
+		return a.checkGeneralInteraction(ctx, detReq)
 	}
 
-	return score, nil
+	return nil, errors.New("wrong interaction")
 }
 
 func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
-	fraudResult := &FraudCheckResult{}
+	fraudResult := &FraudCheckResult{Score: 0}
 
-	var sum, uniqCountries, countPayments int
+	var uniqCountries, countPayments int
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
-												SELECT 
-													SUM(amount),
+												SELECT
 													COUNT(DISTINCT country),
 													COUNT(event_id)
 												FROM fraud.payments
 												WHERE account_id = $1 AND event_time >= $2
 												`, detReq.Payer.AccountID, detReq.IntervalSince)
 
-	if err := row.Scan(&sum, &uniqCountries, &countPayments); err != nil {
+	if err := row.Scan(&uniqCountries, &countPayments); err != nil {
 		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
 	}
 
-	if sum >= 500000 {
-		fraudResult.Score += 40
-	}
 	if uniqCountries > 3 {
 		fraudResult.Score += 30
+		fraudResult.Reasons = append(fraudResult.Reasons, "too many country for account")
 	}
 	if countPayments > 10 {
 		fraudResult.Score += 30
+		fraudResult.Reasons = append(fraudResult.Reasons, "too many payments for account")
 	}
+
+	return fraudResult, nil
 }
 
 func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
@@ -176,7 +177,12 @@ func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, detReq *common.De
 		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
 	}
 
+	log.Printf("Payee interaction for merchant id: %s unique_devices/unique_accounts=%d", merchantId, uniqueDevices/uniqueAccounts)
+
 	fraudResult.Score += 30
+	fraudResult.Reasons = append(fraudResult.Reasons, "too many devices for so low accounts")
+
+	return fraudResult, nil
 }
 
 func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
@@ -215,6 +221,15 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 	log.Printf("Found fraud between %s and %s with %d transactions.\nTotal volume: %d.\nNet flow: %d\nTime span %v active %d",
 				detReq.Payer.AccountID, detReq.Payee.MerchantID, txsCount, totalVolume, netFlow, timeSpan, activeDays)
 
+	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
+		BanType: "",
+		Targets: []string{detReq.Payer.AccountID, detReq.Payee.MerchantID},
+		Reason: "falsification of turnover",
+		Duration: "15",
+	})
+
+	return fraudResult, nil
+
 }
 
 func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
@@ -252,13 +267,14 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 
 	userIDs, err := a.userIDsByDevices(ctx, deviceIDs)
 	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
-		BanType: , 
+		BanType: "", 
 		Targets: userIDs,
-		Reason: "too many account with devices" 
+		Reason: "too many account with devices" ,
+		Duration: "15",
 	})
 	if err != nil{
-		return &FraudCheckResult{}, err
+		return fraudResult, err
 	}
 
-	//rework returning
+	return fraudResult, nil
 }
