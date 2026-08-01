@@ -2,13 +2,13 @@ package fraud
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"github.com/jackc/pgx/v4"
 )
 
 type FraudCheckResult struct {
@@ -112,18 +112,38 @@ func sendBatch(batch driver.Batch, count int) {
 }
 
 func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
+	var checkResult *FraudCheckResult
+
+	var err error
+	
 	switch detReq.Interaction {
 	case common.PayerInteraction:
-		return a.checkPayerInteraction(ctx, detReq)
+		checkResult, err = a.checkPayerInteraction(ctx, detReq)
+		if err != nil{
+			return nil, err
+		}
 	case common.PayeeInteraction:
-		return a.checkPayeeInteraction(ctx, detReq)
+		checkResult, err = a.checkPayeeInteraction(ctx, detReq)
+		if err != nil{
+			return nil, err
+		}
 	case common.PersonalInteraction:
-		return a.checkPersonalInteraction(ctx, detReq)
+		checkResult, err = a.checkPersonalInteraction(ctx, detReq)
+		if err != nil{
+			return nil, err
+		}
 	case common.GeneralInteraction:
-		return a.checkGeneralInteraction(ctx, detReq)
+		checkResult, err = a.checkGeneralInteraction(ctx, detReq)
+		if err != nil{
+			return nil, err
+		}
 	}
 
-	return nil, errors.New("wrong interaction")
+	if checkResult.Score > 100{
+		checkResult.ShouldBan = true
+	}
+
+	return checkResult, nil
 }
 
 func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
@@ -150,6 +170,10 @@ func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.De
 	if countPayments > 10 {
 		fraudResult.Score += 30
 		fraudResult.Reasons = append(fraudResult.Reasons, "too many payments for account")
+	}
+
+	if fraudResult.Score > 100{
+		fraudResult.ShouldBan = true
 	}
 
 	return fraudResult, nil
@@ -214,13 +238,14 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 												AND active_days >= 5
 												AND growth_ratio >= 2.5
 											`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
-	if err := row.Scan(&txsCount, &totalVolume, &netFlow, &activeDays, &timeSpan, &growthRatio); err != nil {
-		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
+	if err := row.Scan(&txsCount, &totalVolume, &netFlow, &activeDays, &timeSpan, &growthRatio); err != nil && err != pgx.ErrNoRows {
+		return fraudRsult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
 	}
 
-	log.Printf("Found fraud between %s and %s with %d transactions.\nTotal volume: %d.\nNet flow: %d\nTime span %v active %d",
+	log.Printf("Found fraud between %s and %s with %d transactions.\nTotal volume: %v.\nNet flow: %v\nTime span %v active %d",
 				detReq.Payer.AccountID, detReq.Payee.MerchantID, txsCount, totalVolume, netFlow, timeSpan, activeDays)
 
+	fraudResult.Score += 100
 	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
 		BanType: "",
 		Targets: []string{detReq.Payer.AccountID, detReq.Payee.MerchantID},
@@ -229,7 +254,6 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 	})
 
 	return fraudResult, nil
-
 }
 
 func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
@@ -256,7 +280,7 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 	}
 
 	for rows.Next(){
-		if err := rows.Scan(&deviceID, &uniqAccounts, &uniqIPs); err != nil{
+		if err := rows.Scan(&deviceID, &uniqAccounts, &uniqIPs); err != nil || err != pgx.ErrNoRows{
 			log.Printf("failed to scan row while %s interaction", detReq.Interaction)
 		}
 
@@ -264,7 +288,11 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 
 		deviceIDs = append(deviceIDs, deviceID)
 	}
+	if err := rows.Err(); err != nil{
+		return nil, err
+	}
 
+	fraudResult.Score += 100
 	userIDs, err := a.userIDsByDevices(ctx, deviceIDs)
 	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
 		BanType: "", 

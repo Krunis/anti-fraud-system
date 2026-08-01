@@ -52,7 +52,9 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	row := tx.QueryRow(ctx, `
 					SELECT id, account_id, merchant_id, interaction, interval_since FROM fraud_requests
 					WHERE timestamp_req < NOW() AND executed=FALSE
-					ORDER BY timestamp_req`)
+					ORDER BY timestamp_req
+					LIMIT 1
+					FOR UPDATE SKIP LOCKED`)
 
 	var id uuid.UUID
 
@@ -79,7 +81,9 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		return fmt.Errorf("Failed to aggregate: %s", err)
 	}
 
-	if checkResult
+	if checkResult == nil || !checkResult.ShouldBan {
+		return nil
+	}
 
 	switch detReq.Interaction {
 	case common.PayerInteraction:
@@ -88,21 +92,33 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		toBan = append(toBan, detReq.Payee.MerchantID)
 	}
 
+	if checkResult.BanDetails != nil {
+		for _, banDetail := range checkResult.BanDetails {
+			if err := a.banByUserIDs(ctx, banDetail.Targets); err != nil {
+				log.Println("Failed to ban users: ")
+				for _, userID := range banDetail.Targets {
+					log.Print(userID + " ")
+				}
+
+				return err
+			}
+		}
+	} else {
+		if err := a.banByUserIDs(ctx, toBan); err != nil {
+			log.Println("Failed to ban users: ")
+			for _, userID := range toBan {
+				log.Print(userID + " ")
+			}
+			return err
+		}
+	}
+
 	_, err = tx.Exec(ctx, `UPDATE fraud_requests
 								SET executed=TRUE
 								WHERE id=$1
 								`, id.String())
 	if err != nil {
 		return fmt.Errorf("Failed to update executed status: %s", err)
-	}
-
-	if checkResult == nil ||{
-		if
-
-		if err := a.banByUserIDs(ctx, toBan); err != nil {
-			log.Printf("Failed to ban user: %s error: %s", detReq.Payer.AccountID, err)
-			return err
-		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -151,12 +167,12 @@ func (a *AntiFraud) userIDsByDevices(ctx context.Context, devices []string) ([]s
 								FROM payment_events
 								WHERE device_id = $1
 								`, device)
-		if err != nil{
+		if err != nil {
 			log.Printf("failed to get account id from psotgres: %s", err)
 		}
-		
-		for rows.Next(){
-			if err := rows.Scan(&userID); err != nil{
+
+		for rows.Next() {
+			if err := rows.Scan(&userID); err != nil {
 				log.Printf("failed to scan account_id row: %s", err)
 			}
 
