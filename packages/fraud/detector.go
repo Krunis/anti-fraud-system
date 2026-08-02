@@ -94,7 +94,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 
 	if checkResult.BanDetails != nil {
 		for _, banDetail := range checkResult.BanDetails {
-			if err := a.banByUserIDs(ctx, banDetail.Targets); err != nil {
+			if err := a.banByUserIDs(ctx, banDetail.Targets, banDetail.Duration); err != nil {
 				log.Println("Failed to ban users: ")
 				for _, userID := range banDetail.Targets {
 					log.Print(userID + " ")
@@ -104,7 +104,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 			}
 		}
 	} else {
-		if err := a.banByUserIDs(ctx, toBan); err != nil {
+		if err := a.banByUserIDs(ctx, toBan, 15); err != nil {
 			log.Println("Failed to ban users: ")
 			for _, userID := range toBan {
 				log.Print(userID + " ")
@@ -128,7 +128,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	return nil
 }
 
-func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string) error {
+func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration) error {
 	t := &TwoPhaseBan{
 		redisDB: a.redisDB,
 		txID:    fmt.Sprintf("%d", time.Now().UnixNano()),

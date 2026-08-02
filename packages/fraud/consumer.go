@@ -86,7 +86,7 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 			considerScores(paymentStats, &redisScores)
 
 			if redisScores > 120 {
-				if err := a.banByUserIDs(session.Context(), []string{payment.Payer.AccountID}); err != nil {
+				if err := a.banByUserIDs(session.Context(), []string{payment.Payer.AccountID}, 15); err != nil {
 					return err
 				}
 			}

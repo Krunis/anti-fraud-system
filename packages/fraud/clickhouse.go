@@ -19,10 +19,9 @@ type FraudCheckResult struct {
 }
 
 type BanDetail struct {
-	BanType  string
 	Targets  []string
 	Reason   string
-	Duration string
+	Duration time.Duration
 }
 
 func (a *AntiFraud) pollerToClickHouse() {
@@ -152,12 +151,12 @@ func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.De
 	var uniqCountries, countPayments int
 
 	row := a.clickHouse.Conn.QueryRow(ctx, `
-												SELECT
-													COUNT(DISTINCT country),
-													COUNT(event_id)
-												FROM fraud.payments
-												WHERE account_id = $1 AND event_time >= $2
-												`, detReq.Payer.AccountID, detReq.IntervalSince)
+											SELECT
+												COUNT(DISTINCT country),
+												COUNT(event_id)
+											FROM fraud.payments
+											WHERE account_id = $1 AND event_time >= $2
+											`, detReq.Payer.AccountID, detReq.IntervalSince)
 
 	if err := row.Scan(&uniqCountries, &countPayments); err != nil {
 		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
@@ -239,7 +238,7 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 												AND growth_ratio >= 2.5
 											`, detReq.Payer.AccountID, detReq.Payee.MerchantID, detReq.IntervalSince)
 	if err := row.Scan(&txsCount, &totalVolume, &netFlow, &activeDays, &timeSpan, &growthRatio); err != nil && err != pgx.ErrNoRows {
-		return fraudRsult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
+		return fraudResult, fmt.Errorf("failed to scan row while %s interaction", detReq.Interaction)
 	}
 
 	log.Printf("Found fraud between %s and %s with %d transactions.\nTotal volume: %v.\nNet flow: %v\nTime span %v active %d",
@@ -247,10 +246,9 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 
 	fraudResult.Score += 100
 	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
-		BanType: "",
 		Targets: []string{detReq.Payer.AccountID, detReq.Payee.MerchantID},
 		Reason: "falsification of turnover",
-		Duration: "15",
+		Duration: 15,
 	})
 
 	return fraudResult, nil
@@ -295,13 +293,12 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 	fraudResult.Score += 100
 	userIDs, err := a.userIDsByDevices(ctx, deviceIDs)
 	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
-		BanType: "", 
 		Targets: userIDs,
-		Reason: "too many account with devices" ,
-		Duration: "15",
+		Reason: "in the users list that has a suspicious device" ,
+		Duration: 15,
 	})
 	if err != nil{
-		return fraudResult, err
+		return nil, err
 	}
 
 	return fraudResult, nil

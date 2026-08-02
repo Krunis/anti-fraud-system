@@ -1,0 +1,92 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: server-payments-config
+data:
+  REDIS_PORT: "6379"
+  POSTGRES_PORT: "5432"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_DB: "postgres"
+  POSTGRES_USER: "postgres"
+---
+# 2. Secret (СЕКРЕТНЫЕ переменные: пароли, логины, ключи)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: server-payments-secret
+type: Opaque
+data:
+  POSTGRES_PASSWORD: cG9zdGdyZXM=
+---
+# 3. Deployment (запуск приложения)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-payments
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: server-payments
+  template:
+    metadata:
+      labels:
+        app: server-payments
+    spec:
+      containers:
+        - name: server-payments
+          image: server-payments:latest    # <-- ВАШ ЛОКАЛЬНЫЙ ОБРАЗ
+          imagePullPolicy: Never           # <-- ВАЖНО для локальной разработки
+          ports:
+            - containerPort: 8082  # <-- Порт внутри контейнера
+              hostPort: 8082      
+          env:
+            # 1. Переменные из ConfigMap
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: server-payments-config
+                  key: REDIS_PORT
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: server-payments-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: server-payments-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: server-payments-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: server-payments-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: server-payments-secret
+                  key: POSTGRES_PASSWORD
+          # livenessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8082
+          #   initialDelaySeconds: 30
+          #   periodSeconds: 10
+---
+# 4. Service (чтобы другие сервисы могли обращаться к server-payments)
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-payments-service
+spec:
+  selector:
+    app: server-payments
+  ports:
+    - port: 8082           # <-- Порт, по которому стучатся другие сервисы
+      targetPort: 8082     # <-- Порт в контейнере
