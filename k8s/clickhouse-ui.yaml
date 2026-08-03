@@ -1,0 +1,50 @@
+# 1. ConfigMap (конфигурация ClickHouse UI)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ch-ui-config
+data:
+  # URL для подключения к ClickHouse внутри кластера
+  CLICKHOUSE_URL: "http://clickhouse:8123"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ch-ui-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ch-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ch-ui
+  template:
+    metadata:
+      labels:
+        app: ch-ui
+    spec:
+      containers:
+        - name: ch-ui
+          image: ghcr.io/caioricciuti/ch-ui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3488
+          envFrom:
+            - configMapRef:
+                name: ch-ui-config
+          volumeMounts:
+            - name: ch-ui-storage
+              mountPath: /app/data
+      volumes:
+        - name: ch-ui-storage
+          persistentVolumeClaim:
+            claimName: ch-ui-pvc

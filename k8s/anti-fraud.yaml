@@ -1,0 +1,90 @@
+# 1. ConfigMap (несекретные переменные)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anti-fraud-config
+data:
+  REDIS_PORT: "6379"
+  POSTGRES_PORT: "5432"
+  # POSTGRES_HOST будет в Secret, но если хочешь - можно и сюда
+  POSTGRES_HOST: "postgres-service"
+---
+# 2. Secret (секретные переменные)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: anti-fraud-secret
+stringData:
+  POSTGRES_DB: "my_database"
+  POSTGRES_USER: "my_user"
+  POSTGRES_PASSWORD: "my_password"
+  # (опционально) если пароль для ClickHouse отдельный
+  # CLICKHOUSE_PASSWORD: "changeme"
+---
+# 3. Deployment (запуск anti-fraud)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anti-fraud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anti-fraud
+  template:
+    metadata:
+      labels:
+        app: anti-fraud
+    spec:
+      containers:
+        - name: anti-fraud
+          image: anti-fraud:latest           # 👈 Твой локальный образ
+          imagePullPolicy: Never             # 👈 Для локальной разработки
+          ports:
+            - containerPort: 8080            # 👈 Порт, который слушает твое приложение
+          env:
+            # Из ConfigMap (несекретные)
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: anti-fraud-config
+                  key: REDIS_PORT
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: anti-fraud-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: anti-fraud-config
+                  key: POSTGRES_HOST
+            # Из Secret (секретные)
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: anti-fraud-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: anti-fraud-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: anti-fraud-secret
+                  key: POSTGRES_PASSWORD
+          # (опционально) Проверка здоровья
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickhouse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      containers:
+        - name: clickhouse
+          image: clickhouse:latest
+          imagePullPolicy: IfNotPresent   # <-- если нет локально — скачай
+          ports:
+            - containerPort: 9000          # <-- Native protocol
+            - containerPort: 8123          # <-- HTTP API
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              value: "changeme"            # <-- В продакшене так НЕ ДЕЛАЙ!
+          # (опционально) Проверка здоровья
+          livenessProbe:
+            tcpSocket:
+              port: 9000
+            initialDelaySeconds: 30
+            periodSeconds: 10

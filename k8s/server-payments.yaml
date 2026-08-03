@@ -79,14 +79,3 @@ spec:
           #   initialDelaySeconds: 30
           #   periodSeconds: 10
 ---
-# 4. Service (чтобы другие сервисы могли обращаться к server-payments)
-apiVersion: v1
-kind: Service
-metadata:
-  name: server-payments-service
-spec:
-  selector:
-    app: server-payments
-  ports:
-    - port: 8082           # <-- Порт, по которому стучатся другие сервисы
-      targetPort: 8082     # <-- Порт в контейнере

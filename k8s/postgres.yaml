@@ -1,0 +1,84 @@
+# 1. Secret (для паролей и логинов)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+stringData:
+  POSTGRES_DB: "postgres"        # 👈 Замени на свое
+  POSTGRES_USER: "postgres"          # 👈 Замени на свое
+  POSTGRES_PASSWORD: "postgres"  # 👈 Замени на свое
+# При применении Kubernetes сам закодирует в base64
+---
+# 2. PersistentVolumeClaim (для хранения данных)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi                  # 👈 5 ГБ для базы
+---
+# 3. Deployment (запуск PostgreSQL)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+          # (опционально) Проверка здоровья
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - my_user
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - my_user
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc

@@ -36,14 +36,3 @@ spec:
             httpGet:
               path: /actuator/health
               port: 8080
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: kafka-ui-service
-spec:
-  selector:
-    app: kafka-ui
-  ports:
-    - port: 80
-      targetPort: 8080
