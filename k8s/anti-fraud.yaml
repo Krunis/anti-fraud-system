@@ -6,7 +6,6 @@ metadata:
 data:
   REDIS_PORT: "6379"
   POSTGRES_PORT: "5432"
-  # POSTGRES_HOST будет в Secret, но если хочешь - можно и сюда
   POSTGRES_HOST: "postgres-service"
 ---
 # 2. Secret (секретные переменные)
@@ -38,7 +37,8 @@ spec:
     spec:
       containers:
         - name: anti-fraud
-          image: anti-fraud:latest           # 👈 Твой локальный образ
+          image: anti-fraud-system-anti-fraud:latest
+        # 👈 Твой локальный образ
           imagePullPolicy: Never             # 👈 Для локальной разработки
           ports:
             - containerPort: 8080            # 👈 Порт, который слушает твое приложение

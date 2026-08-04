@@ -19,7 +19,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi                  # 👈 5 ГБ для базы
+      storage: 5Gi                 
 ---
 # 3. Deployment (запуск PostgreSQL)
 apiVersion: apps/v1
@@ -38,7 +38,7 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:latest
+          image: anti-fraud-system-postgres:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
@@ -67,7 +67,7 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - my_user
+                - postgres
             initialDelaySeconds: 30
             periodSeconds: 10
           readinessProbe:
@@ -75,7 +75,7 @@ spec:
               command:
                 - pg_isready
                 - -U
-                - my_user
+                - postgres
             initialDelaySeconds: 5
             periodSeconds: 5
       volumes:
