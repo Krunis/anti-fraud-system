@@ -6,7 +6,7 @@ metadata:
 data:
   REDIS_PORT: "6379"
   POSTGRES_PORT: "5432"
-  POSTGRES_HOST: "postgres-service"
+  POSTGRES_HOST: "postgres"
 ---
 # 2. Secret (секретные переменные)
 apiVersion: v1
@@ -14,9 +14,9 @@ kind: Secret
 metadata:
   name: anti-fraud-secret
 stringData:
-  POSTGRES_DB: "my_database"
-  POSTGRES_USER: "my_user"
-  POSTGRES_PASSWORD: "my_password"
+  POSTGRES_DB: "postgres"
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "postgres"
   # (опционально) если пароль для ClickHouse отдельный
   # CLICKHOUSE_PASSWORD: "changeme"
 ---

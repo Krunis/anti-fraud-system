@@ -82,3 +82,12 @@ spec:
           #   initialDelaySeconds: 30
           #   periodSeconds: 10
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server-payments   # <--- Чтобы имя совпадало с тем, что в ConfigMap
+spec:
+  selector:
+    app: server-payments
+  ports:
+    - port: 8082

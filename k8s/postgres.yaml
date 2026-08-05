@@ -19,7 +19,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi                 
+      storage: 2Gi                 
 ---
 # 3. Deployment (запуск PostgreSQL)
 apiVersion: apps/v1
@@ -82,3 +82,13 @@ spec:
         - name: postgres-storage
           persistentVolumeClaim:
             claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres   # <--- Чтобы имя совпадало с тем, что в ConfigMap
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
