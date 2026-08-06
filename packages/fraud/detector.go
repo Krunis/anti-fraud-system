@@ -8,12 +8,14 @@ import (
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v4"
 )
 
 type TwoPhaseBan struct {
 	redisDB *common.Redis
 	txID    string
 	userIDs []string
+	banDur  time.Duration
 	ttl     time.Duration
 }
 
@@ -49,13 +51,6 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	}
 	defer tx.Rollback(ctx)
 
-	row := tx.QueryRow(ctx, `
-					SELECT id, account_id, merchant_id, interaction, interval_since FROM fraud_requests
-					WHERE timestamp_req < NOW() AND executed=FALSE
-					ORDER BY timestamp_req
-					LIMIT 1
-					FOR UPDATE SKIP LOCKED`)
-
 	var id uuid.UUID
 
 	detReq := &common.DetectRequest{
@@ -63,9 +58,32 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		Payee: &common.PayeeType{},
 	}
 
-	if err := row.Scan(&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID, &detReq.Interaction, &detReq.IntervalSince); err != nil {
-		return fmt.Errorf("Failed to scan row: %s", err)
+	err = tx.QueryRow(ctx, `
+					UPDATE fraud_requests
+					SET executed=TRUE
+					WHERE id = (
+						SELECT id FROM fraud_requests
+						WHERE timestamp_req <= NOW() AND executed=FALSE
+						ORDER BY timestamp_req
+						LIMIT 1
+						FOR UPDATE SKIP LOCKED
+						)
+					RETURNING id, account_id, merchant_id, interaction, interval_since
+					`).Scan(&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID,
+		&detReq.Interaction, &detReq.IntervalSince)
+	if err == pgx.ErrNoRows {
+		return nil
 	}
+
+	if err != nil {
+		return fmt.Errorf("Failed to update and fetch row: %s", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil{
+		return fmt.Errorf("Failed to commit: %s", err)
+	}
+
+	//retrying after hard operations
 
 	if detReq.IntervalSince == nil {
 		startTime := time.Unix(0, 0)
@@ -113,18 +131,6 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		}
 	}
 
-	_, err = tx.Exec(ctx, `UPDATE fraud_requests
-								SET executed=TRUE
-								WHERE id=$1
-								`, id.String())
-	if err != nil {
-		return fmt.Errorf("Failed to update executed status: %s", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("Failed to commit: %s", err)
-	}
-
 	return nil
 }
 
@@ -133,6 +139,7 @@ func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration
 		redisDB: a.redisDB,
 		txID:    fmt.Sprintf("%d", time.Now().UnixNano()),
 		userIDs: userIDs,
+		banDur:  duration,
 		ttl:     time.Minute * 5,
 	}
 
@@ -211,7 +218,7 @@ func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
 	pipeline := t.redisDB.Pipeline()
 
 	for _, userID := range t.userIDs {
-		pipeline.Set(ctx, fmt.Sprintf("fraud:ban:%s", userID), "1", 0)
+		pipeline.Set(ctx, fmt.Sprintf("fraud:ban:%s", userID), "1", t.banDur)
 
 		tempKey := fmt.Sprintf("ban:tx:%s:user:%s", t.txID, userID)
 		pipeline.Del(ctx, tempKey)
