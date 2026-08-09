@@ -76,6 +76,9 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 		return err
 	}
 
+	redis.Client
+
+
 	a.consumer, err = NewConsumer(a.lifecycle.Ctx, []string{"kafka:9092"})
 	if err != nil {
 		return err
