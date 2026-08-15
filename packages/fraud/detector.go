@@ -185,6 +185,8 @@ func (a *AntiFraud) userIDsByDevices(ctx context.Context, devices []string) ([]s
 
 			userIDs = append(userIDs, userID)
 		}
+
+		rows.Close()
 	}
 
 	return userIDs, nil

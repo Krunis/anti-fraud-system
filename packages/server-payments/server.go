@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/Krunis/anti-fraud-system/packages/interfaces"
 )
 
 type ServerPayments struct {
@@ -26,7 +26,7 @@ type ServerPayments struct {
 
 	syncProducer *SyncProducer
 
-	postgresDB *pgxpool.Pool
+	postgresDB interfaces.DB
 
 	paymentsToKafka chan *common.PaymentEvent
 
@@ -52,7 +52,7 @@ func NewServerPayments(address string) *ServerPayments {
 func (s *ServerPayments) Start(dbConnectionString string) error {
 	var err error
 
-	s.postgresDB, err = common.ConnectToDB(s.lifecycle.Ctx, dbConnectionString)
+	s.postgresDB, err = common.ConnectToPostgres(s.lifecycle.Ctx, dbConnectionString)
 	if err != nil {
 		return err
 	}
@@ -268,6 +268,10 @@ func (s *ServerPayments) Stop() error {
 			if err := s.redisDB.Close(); err != nil {
 				errs = append(errs, err)
 			}
+		}
+
+		if s.postgresDB != nil{
+			s.postgresDB.Close()
 		}
 	})
 

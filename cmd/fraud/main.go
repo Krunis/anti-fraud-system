@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -11,7 +12,31 @@ import (
 )
 
 func main() {
-	fr := fraud.NewAntiFraud()
+var err error
+
+	postgresDB, err := common.ConnectToPostgres(context.Background(), common.GetDBConnectionString())
+	if err != nil{
+		log.Fatalf("error while starting: %s", err)
+	}
+
+	redisDB, err := common.ConnectToRedis(context.Background())
+	if err != nil {
+		log.Fatalf("error while starting: %s", err)
+	}
+
+	clickHouse, err := common.NewClickHouseWriter("clickhouse", 9000, "payments", "default")
+	if err != nil {
+		log.Fatalf("error while starting: %s", err)
+	}
+
+	consumer, err := fraud.NewConsumer(context.Background(), []string{"kafka:9092"})
+	if err != nil {
+		log.Fatalf("error while starting: %s", err)
+	}
+
+	db := common.NewDB(postgresDB)
+
+	fr := fraud.NewAntiFraud(postgresDB)
 
 	errCh := make(chan error, 1)
 

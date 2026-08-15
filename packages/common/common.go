@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/Krunis/anti-fraud-system/packages/interfaces"
+	"github.com/jackc/pgconn"
+	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -205,7 +208,7 @@ func GetDBConnectionString() string{
 	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", dbUser, dbPassword, dbHost, dbPort, dbName)
 }
 
-func ConnectToDB(ctx context.Context, dbConnectionString string) (*pgxpool.Pool, error) {
+func ConnectToPostgres(ctx context.Context, dbConnectionString string) (*pgxpool.Pool, error) {
 	var err error
 
 	timer := time.NewTimer(time.Second * 26)
@@ -231,4 +234,28 @@ func ConnectToDB(ctx context.Context, dbConnectionString string) (*pgxpool.Pool,
 			return nil, ctx.Err()
 		}
 	}
+}
+
+type poolWrapper struct {
+    pool *pgxpool.Pool
+}
+
+func NewDB(pool *pgxpool.Pool) interfaces.DB {
+    return &poolWrapper{pool: pool}
+}
+
+func (p *poolWrapper) Query(ctx context.Context, sql string, args ...any) (interfaces.Rows, error) {
+    return p.pool.Query(ctx, sql, args...) // pgx.Rows реализует твой Rows интерфейс — сработает как есть
+}
+
+func (p *poolWrapper) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+    return p.pool.Exec(ctx, sql, args...)
+}
+
+func (p *poolWrapper) Begin(ctx context.Context) (pgx.Tx, error) {
+    return p.pool.Begin(ctx)
+}
+
+func (p *poolWrapper) Close() {
+    p.pool.Close()
 }

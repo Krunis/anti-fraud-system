@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/byteonabeach/ip2country"
 	"github.com/Krunis/anti-fraud-system/packages/common"
-	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/Krunis/anti-fraud-system/packages/interfaces"
+	"github.com/byteonabeach/ip2country"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,7 +34,7 @@ type AntiFraud struct {
 
 	redisDB *common.Redis
 
-	postgresDB *pgxpool.Pool
+	postgresDB interfaces.DB
 
 	clickHouse     *common.CHWriter
 	paymentCh      chan *common.PaymentEvent
@@ -46,7 +46,7 @@ type AntiFraud struct {
 	stopOnce sync.Once
 }
 
-func NewAntiFraud() *AntiFraud {
+func NewAntiFraud(postgresDB interfaces.DB) *AntiFraud {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &AntiFraud{
@@ -59,36 +59,11 @@ func NewAntiFraud() *AntiFraud {
 }
 
 func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string) error {
-	var err error
-
-	a.postgresDB, err = common.ConnectToDB(a.lifecycle.Ctx, dbConnectionString)
-	if err != nil{
-		return err
-	}
-
-	a.redisDB, err = common.ConnectToRedis(a.lifecycle.Ctx)
-	if err != nil {
-		return err
-	}
-
-	a.clickHouse, err = common.NewClickHouseWriter("clickhouse", 9000, tableCH, userCH)
-	if err != nil {
-		return err
-	}
-
-	redis.Client
-
-
-	a.consumer, err = NewConsumer(a.lifecycle.Ctx, []string{"kafka:9092"})
-	if err != nil {
-		return err
-	}
-
 	a.wg.Go(a.pollerToClickHouse)
 
 	a.wg.Go(a.startDetector)
 
-	if err = a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
+	if err := a.consumer.Consume(a.lifecycle.Ctx, []string{"payment-events"}, a); err != nil {
 		return err
 	}
 
@@ -199,6 +174,10 @@ func (a *AntiFraud) Stop() error {
 			if err := a.redisDB.Close(); err != nil {
 				errs = append(errs, err)
 			}
+		}
+
+		if a.postgresDB != nil{
+			a.postgresDB.Close()
 		}
 	})
 
