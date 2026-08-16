@@ -63,18 +63,19 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 					SET executed=TRUE
 					WHERE id = (
 						SELECT id FROM fraud_requests
-						WHERE timestamp_req <= NOW() AND executed=FALSE
+						WHERE timestamp_req <= NOW() AND executed = FALSE
 						ORDER BY timestamp_req
 						LIMIT 1
 						FOR UPDATE SKIP LOCKED
 						)
 					RETURNING id, account_id, merchant_id, interaction, interval_since
-					`).Scan(&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID,
-		&detReq.Interaction, &detReq.IntervalSince)
+					`).Scan(
+						&id, &detReq.Payer.AccountID, &detReq.Payee.MerchantID,
+						&detReq.Interaction, &detReq.IntervalSince,
+					)
 	if err == pgx.ErrNoRows {
 		return nil
 	}
-
 	if err != nil {
 		return fmt.Errorf("Failed to update and fetch row: %s", err)
 	}

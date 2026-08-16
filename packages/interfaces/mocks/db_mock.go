@@ -15,7 +15,6 @@ import (
 
 	interfaces "github.com/Krunis/anti-fraud-system/packages/interfaces"
 	pgconn "github.com/jackc/pgconn"
-	pgx "github.com/jackc/pgx/v4"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -44,10 +43,10 @@ func (m *MockDB) EXPECT() *MockDBMockRecorder {
 }
 
 // Begin mocks base method.
-func (m *MockDB) Begin(ctx context.Context) (pgx.Tx, error) {
+func (m *MockDB) Begin(ctx context.Context) (interfaces.Tx, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Begin", ctx)
-	ret0, _ := ret[0].(pgx.Tx)
+	ret0, _ := ret[0].(interfaces.Tx)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -108,6 +107,119 @@ func (mr *MockDBMockRecorder) Query(ctx, sql any, args ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, sql}, args...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Query", reflect.TypeOf((*MockDB)(nil).Query), varargs...)
+}
+
+// MockTx is a mock of Tx interface.
+type MockTx struct {
+	ctrl     *gomock.Controller
+	recorder *MockTxMockRecorder
+	isgomock struct{}
+}
+
+// MockTxMockRecorder is the mock recorder for MockTx.
+type MockTxMockRecorder struct {
+	mock *MockTx
+}
+
+// NewMockTx creates a new mock instance.
+func NewMockTx(ctrl *gomock.Controller) *MockTx {
+	mock := &MockTx{ctrl: ctrl}
+	mock.recorder = &MockTxMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockTx) EXPECT() *MockTxMockRecorder {
+	return m.recorder
+}
+
+// Commit mocks base method.
+func (m *MockTx) Commit(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Commit", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Commit indicates an expected call of Commit.
+func (mr *MockTxMockRecorder) Commit(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Commit", reflect.TypeOf((*MockTx)(nil).Commit), ctx)
+}
+
+// QueryRow mocks base method.
+func (m *MockTx) QueryRow(ctx context.Context, sql string, args ...any) interfaces.Row {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, sql}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "QueryRow", varargs...)
+	ret0, _ := ret[0].(interfaces.Row)
+	return ret0
+}
+
+// QueryRow indicates an expected call of QueryRow.
+func (mr *MockTxMockRecorder) QueryRow(ctx, sql any, args ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, sql}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryRow", reflect.TypeOf((*MockTx)(nil).QueryRow), varargs...)
+}
+
+// Rollback mocks base method.
+func (m *MockTx) Rollback(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Rollback", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Rollback indicates an expected call of Rollback.
+func (mr *MockTxMockRecorder) Rollback(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockTx)(nil).Rollback), ctx)
+}
+
+// MockRow is a mock of Row interface.
+type MockRow struct {
+	ctrl     *gomock.Controller
+	recorder *MockRowMockRecorder
+	isgomock struct{}
+}
+
+// MockRowMockRecorder is the mock recorder for MockRow.
+type MockRowMockRecorder struct {
+	mock *MockRow
+}
+
+// NewMockRow creates a new mock instance.
+func NewMockRow(ctrl *gomock.Controller) *MockRow {
+	mock := &MockRow{ctrl: ctrl}
+	mock.recorder = &MockRowMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockRow) EXPECT() *MockRowMockRecorder {
+	return m.recorder
+}
+
+// Scan mocks base method.
+func (m *MockRow) Scan(dest ...any) error {
+	m.ctrl.T.Helper()
+	varargs := []any{}
+	for _, a := range dest {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Scan", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Scan indicates an expected call of Scan.
+func (mr *MockRowMockRecorder) Scan(dest ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scan", reflect.TypeOf((*MockRow)(nil).Scan), dest...)
 }
 
 // MockRows is a mock of Rows interface.

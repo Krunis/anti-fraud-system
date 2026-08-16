@@ -236,26 +236,47 @@ func ConnectToPostgres(ctx context.Context, dbConnectionString string) (*pgxpool
 	}
 }
 
-type poolWrapper struct {
+type PoolWrapper struct {
     pool *pgxpool.Pool
 }
 
-func NewDB(pool *pgxpool.Pool) interfaces.DB {
-    return &poolWrapper{pool: pool}
+type TxWrapper struct{
+	tx pgx.Tx
 }
 
-func (p *poolWrapper) Query(ctx context.Context, sql string, args ...any) (interfaces.Rows, error) {
+func NewDB(pool *pgxpool.Pool) interfaces.DB {
+    return &PoolWrapper{pool: pool}
+}
+
+func (p *PoolWrapper) Query(ctx context.Context, sql string, args ...any) (interfaces.Rows, error) {
     return p.pool.Query(ctx, sql, args...) // pgx.Rows реализует твой Rows интерфейс — сработает как есть
 }
 
-func (p *poolWrapper) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+func (p *PoolWrapper) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
     return p.pool.Exec(ctx, sql, args...)
 }
 
-func (p *poolWrapper) Begin(ctx context.Context) (pgx.Tx, error) {
-    return p.pool.Begin(ctx)
+func (p *PoolWrapper) Begin(ctx context.Context) (interfaces.Tx, error) {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil{
+		return nil, err
+	}
+
+    return &TxWrapper{tx: tx}, nil
 }
 
-func (p *poolWrapper) Close() {
+func (p *PoolWrapper) Close() {
     p.pool.Close()
+}
+
+func (t *TxWrapper) Commit(ctx context.Context) error {
+    return t.tx.Commit(ctx)
+}
+
+func (t *TxWrapper) QueryRow(ctx context.Context, sql string, args ...interface{}) interfaces.Row {
+    return t.tx.QueryRow(ctx, sql, args...) 
+}
+
+func (t *TxWrapper) Rollback(ctx context.Context) error {
+    return t.tx.Rollback(ctx)
 }
