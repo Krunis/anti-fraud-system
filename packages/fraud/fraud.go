@@ -34,9 +34,9 @@ type AntiFraud struct {
 
 	redisDB *common.Redis
 
-	postgresDB interfaces.DB
+	postgresDB interfaces.PostgresDB
 
-	clickHouse     *common.CHWriter
+	clickHouse     interfaces.CH
 	paymentCh      chan *common.PaymentEvent
 	paymentChMutex sync.RWMutex
 
@@ -46,10 +46,13 @@ type AntiFraud struct {
 	stopOnce sync.Once
 }
 
-func NewAntiFraud(postgresDB interfaces.DB) *AntiFraud {
+func NewAntiFraud(postgresDB interfaces.PostgresDB, clickhouse interfaces.CH, redisDB *common.Redis, consumer *Consumer) *AntiFraud {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &AntiFraud{
+		postgresDB: postgresDB,
+		clickHouse: clickhouse,
+		redisDB: redisDB,
 		paymentCh: make(chan *common.PaymentEvent, 1000),
 		lifecycle: common.Lifecycle{
 			Ctx:    ctx,
@@ -71,7 +74,7 @@ func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string
 }
 
 func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentEvent) error {
-	pipeline := a.redisDB.Pipeline()
+	pipeline := a.redisDB.Client.Pipeline()
 
 	pipeline.Incr(ctx, fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID))
 	pipeline.Expire(ctx, fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID), time.Second*30)
@@ -107,7 +110,7 @@ func (a *AntiFraud) refreshInRedis(ctx context.Context, payment *common.PaymentE
 }
 
 func (a *AntiFraud) getStatsFromRedis(ctx context.Context, payment *common.PaymentEvent) (*PaymentStats, error) {
-	pipeline := a.redisDB.Pipeline()
+	pipeline := a.redisDB.Client.Pipeline()
 
 	failedLogins := pipeline.Get(ctx, fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID))
 
@@ -165,13 +168,13 @@ func (a *AntiFraud) Stop() error {
 		}
 
 		if a.clickHouse != nil {
-			if err := a.clickHouse.Conn.Close(); err != nil {
+			if err := a.clickHouse.Close(); err != nil {
 				errs = append(errs, err)
 			}
 		}
 
 		if a.redisDB != nil {
-			if err := a.redisDB.Close(); err != nil {
+			if err := a.redisDB.Client.Close(); err != nil {
 				errs = append(errs, err)
 			}
 		}

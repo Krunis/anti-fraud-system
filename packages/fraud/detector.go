@@ -56,7 +56,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	detReq := &common.DetectRequest{
 		Payer: &common.PayerType{},
 		Payee: &common.PayeeType{},
-	}
+	}	
 
 	err = tx.QueryRow(ctx, `
 					UPDATE fraud_requests
@@ -194,7 +194,7 @@ func (a *AntiFraud) userIDsByDevices(ctx context.Context, devices []string) ([]s
 }
 
 func (t *TwoPhaseBan) prepareBan(ctx context.Context) error {
-	pipeline := t.redisDB.Pipeline()
+	pipeline := t.redisDB.Client.Pipeline()
 
 	for _, userID := range t.userIDs {
 		key := fmt.Sprintf("ban:tx:%s:user:%s", t.txID, userID)
@@ -218,7 +218,7 @@ func (t *TwoPhaseBan) validateUsers(ctx context.Context) error {
 }
 
 func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
-	pipeline := t.redisDB.Pipeline()
+	pipeline := t.redisDB.Client.Pipeline()
 
 	for _, userID := range t.userIDs {
 		pipeline.Set(ctx, fmt.Sprintf("fraud:ban:%s", userID), "1", t.banDur)
@@ -238,7 +238,7 @@ func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
 }
 
 func (t *TwoPhaseBan) rollbackBans(ctx context.Context) error {
-	pipeline := t.redisDB.Pipeline()
+	pipeline := t.redisDB.Client.Pipeline()
 
 	for _, userID := range t.userIDs {
 		tempKey := fmt.Sprintf("ban:tx:%s:user:%s", t.txID, userID)

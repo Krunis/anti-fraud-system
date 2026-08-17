@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/Krunis/anti-fraud-system/packages/common"
+	"github.com/Krunis/anti-fraud-system/packages/interfaces"
 	"github.com/jackc/pgx/v4"
 )
 
@@ -29,7 +29,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 	defer timer.Stop()
 
 	var err error
-	var batch driver.Batch
+	var batch interfaces.CHBatch
 	var count int
 
 	for {
@@ -54,7 +54,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 			}
 
 			if batch == nil {
-				batch, err = a.clickHouse.Conn.PrepareBatch(a.lifecycle.Ctx, `
+				batch, err = a.clickHouse.PrepareBatch(a.lifecycle.Ctx, `
 										INSERT INTO fraud.payments (
 										event_id, event_time, direction, 
 										amount, currency, transaction_type,
@@ -65,6 +65,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 					log.Printf("Failed to prepare batch: %s", err)
 					continue
 				}
+				defer batch.Close()
 
 				count = 0
 			}
@@ -96,7 +97,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 	}
 }
 
-func sendBatch(batch driver.Batch, count int) {
+func sendBatch(batch interfaces.CHBatch, count int) {
 	if batch == nil || count == 0 {
 		return
 	}
@@ -150,7 +151,7 @@ func (a *AntiFraud) checkPayerInteraction(ctx context.Context, detReq *common.De
 
 	var uniqCountries, countPayments int
 
-	row := a.clickHouse.Conn.QueryRow(ctx, `
+	row := a.clickHouse.QueryRow(ctx, `
 											SELECT
 												COUNT(DISTINCT country),
 												COUNT(event_id)
@@ -184,7 +185,7 @@ func (a *AntiFraud) checkPayeeInteraction(ctx context.Context, detReq *common.De
 	var merchantId, merchantName string
 	var uniqueDevices, uniqueAccounts uint64
 
-	row := a.clickHouse.Conn.QueryRow(ctx, `
+	row := a.clickHouse.QueryRow(ctx, `
 												SELECT
 													merchant_id,
 													merchant_name,
@@ -217,7 +218,7 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 
 	var timeSpan time.Duration
 
-	row := a.clickHouse.Conn.QueryRow(ctx, `
+	row := a.clickHouse.QueryRow(ctx, `
 											SELECT
 												COUNT() as txs_count,
 												SUM(amount) as total_volume,
@@ -263,7 +264,7 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 
 	var uniqAccounts, uniqIPs int
 
-	rows, err := a.clickHouse.Conn.Query(ctx, `
+	rows, err := a.clickHouse.Query(ctx, `
 												SELECT 
 													device_id,
 													uniq(account_id) AS unique_accounts,
@@ -276,6 +277,7 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	for rows.Next(){
 		if err := rows.Scan(&deviceID, &uniqAccounts, &uniqIPs); err != nil || err != pgx.ErrNoRows{

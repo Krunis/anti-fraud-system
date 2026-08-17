@@ -24,7 +24,7 @@ var err error
 		log.Fatalf("error while starting: %s", err)
 	}
 
-	clickHouse, err := common.NewClickHouseWriter("clickhouse", 9000, "payments", "default")
+	conn, err := common.NewClickHouseConn("clickhouse", 9000, "payments", "default")
 	if err != nil {
 		log.Fatalf("error while starting: %s", err)
 	}
@@ -36,7 +36,9 @@ var err error
 
 	db := common.NewDB(postgresDB)
 
-	fr := fraud.NewAntiFraud(postgresDB)
+	ch := common.NewCH(conn)
+
+	fr := fraud.NewAntiFraud(db, ch, redisDB, consumer)
 
 	errCh := make(chan error, 1)
 

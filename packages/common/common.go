@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/Krunis/anti-fraud-system/packages/interfaces"
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
@@ -17,7 +18,7 @@ import (
 )
 
 type Lifecycle struct {
-	Ctx context.Context
+	Ctx    context.Context
 	Cancel context.CancelFunc
 }
 
@@ -45,8 +46,8 @@ type ContextData struct {
 }
 
 type PaymentEvent struct {
-	EventID   string `json:"event_id"`
-	
+	EventID string `json:"event_id"`
+
 	EventTime string `json:"event_time"`
 
 	Direction string `json:"direction"`
@@ -62,15 +63,14 @@ type PaymentEvent struct {
 
 type InteractionType string
 
-const(
-	PayerInteraction InteractionType = "PAYER"
-	PayeeInteraction InteractionType = "PAYEE"
+const (
+	PayerInteraction    InteractionType = "PAYER"
+	PayeeInteraction    InteractionType = "PAYEE"
 	PersonalInteraction InteractionType = "PERSONAL"
-	GeneralInteraction InteractionType = "GENERAL"
-	
+	GeneralInteraction  InteractionType = "GENERAL"
 )
 
-type DetectRequest struct{
+type DetectRequest struct {
 	Payer *PayerType `json:"payer"`
 
 	Payee *PayeeType `json:"payee"`
@@ -79,16 +79,6 @@ type DetectRequest struct{
 
 	IntervalSince *time.Time `json:"interval_since"`
 }
-
-type Redis struct {
-	*redis.Client
-}
-
-type CHWriter struct {
-	Conn      clickhouse.Conn
-	TableName string
-}
-
 
 func ConnectToRedis(ctx context.Context) (*Redis, error) {
 	redisPort := os.Getenv("REDIS_PORT")
@@ -107,13 +97,13 @@ func ConnectToRedis(ctx context.Context) (*Redis, error) {
 	return &Redis{Client: redisDB}, nil
 }
 
-func (r *Redis) CheckBan(ctx context.Context, userID string) bool{
-	val, err := r.Exists(ctx, fmt.Sprintf("fraud:ban:%s", userID)).Result()
+func (r *Redis) CheckBan(ctx context.Context, userID string) bool {
+	val, err := r.Client.Exists(ctx, fmt.Sprintf("fraud:ban:%s", userID)).Result()
 
 	return err == nil && val == 1
 }
 
-func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWriter, error) {
+func NewClickHouseConn(host string, port uint16, table, user string) (clickhouse.Conn, error) {
 	ctx := context.Background()
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
@@ -121,7 +111,6 @@ func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWrite
 		Auth: clickhouse.Auth{
 			Username: user,
 			Password: "changeme",
-
 		},
 		DialTimeout:     time.Second,
 		MaxOpenConns:    10,
@@ -131,13 +120,13 @@ func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWrite
 	if err != nil {
 		return nil, err
 	}
-	
+
 	err = conn.Exec(ctx, `
         CREATE DATABASE IF NOT EXISTS fraud
     `)
-    if err != nil {
-        return nil, err
-    }
+	if err != nil {
+		return nil, err
+	}
 
 	if err := conn.Exec(ctx, `
                     CREATE TABLE IF NOT EXISTS fraud.payments
@@ -160,9 +149,9 @@ func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWrite
                     )
                     ENGINE = MergeTree()
                     ORDER BY (event_time, account_id)
-                    `); err != nil{
-                        return nil, err
-                    }
+                    `); err != nil {
+		return nil, err
+	}
 
 	if err := conn.Ping(ctx); err != nil {
 		if exception, ok := err.(*clickhouse.Exception); ok {
@@ -171,10 +160,10 @@ func NewClickHouseWriter(host string, port uint16, table, user string) (*CHWrite
 		return nil, err
 	}
 
-	return &CHWriter{Conn: conn, TableName: table}, nil
+	return conn, nil
 }
 
-func GetDBConnectionString() string{
+func GetDBConnectionString() string {
 	var missingEnvVars []string
 
 	checkEnvVar := func(envVar, envVarName string) {
@@ -236,47 +225,75 @@ func ConnectToPostgres(ctx context.Context, dbConnectionString string) (*pgxpool
 	}
 }
 
-type PoolWrapper struct {
-    pool *pgxpool.Pool
+type Redis struct {
+	Client *redis.Client
 }
 
-type TxWrapper struct{
+type TxWrapper struct {
 	tx pgx.Tx
 }
 
-func NewDB(pool *pgxpool.Pool) interfaces.DB {
-    return &PoolWrapper{pool: pool}
+func (t *TxWrapper) Commit(ctx context.Context) error {
+	return t.tx.Commit(ctx)
+}
+
+func (t *TxWrapper) QueryRow(ctx context.Context, sql string, args ...interface{}) interfaces.Row {
+	return t.tx.QueryRow(ctx, sql, args...)
+}
+
+func (t *TxWrapper) Rollback(ctx context.Context) error {
+	return t.tx.Rollback(ctx)
+}
+
+type PoolWrapper struct {
+	pool *pgxpool.Pool
+}
+
+func NewDB(pool *pgxpool.Pool) interfaces.PostgresDB {
+	return &PoolWrapper{pool: pool}
 }
 
 func (p *PoolWrapper) Query(ctx context.Context, sql string, args ...any) (interfaces.Rows, error) {
-    return p.pool.Query(ctx, sql, args...) // pgx.Rows реализует твой Rows интерфейс — сработает как есть
+	return p.pool.Query(ctx, sql, args...)
 }
 
 func (p *PoolWrapper) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
-    return p.pool.Exec(ctx, sql, args...)
+	return p.pool.Exec(ctx, sql, args...)
 }
 
 func (p *PoolWrapper) Begin(ctx context.Context) (interfaces.Tx, error) {
 	tx, err := p.pool.Begin(ctx)
-	if err != nil{
+	if err != nil {
 		return nil, err
 	}
 
-    return &TxWrapper{tx: tx}, nil
+	return &TxWrapper{tx: tx}, nil
 }
 
 func (p *PoolWrapper) Close() {
-    p.pool.Close()
+	p.pool.Close()
 }
 
-func (t *TxWrapper) Commit(ctx context.Context) error {
-    return t.tx.Commit(ctx)
+type CHWrapper struct {
+	conn clickhouse.Conn
 }
 
-func (t *TxWrapper) QueryRow(ctx context.Context, sql string, args ...interface{}) interfaces.Row {
-    return t.tx.QueryRow(ctx, sql, args...) 
+func NewCH(conn clickhouse.Conn) interfaces.CH {
+	return &CHWrapper{conn: conn}
 }
 
-func (t *TxWrapper) Rollback(ctx context.Context) error {
-    return t.tx.Rollback(ctx)
+func (ch *CHWrapper) Query(ctx context.Context, query string, args ...any) (interfaces.CHRows, error) {
+	return ch.conn.Query(ctx, query, args...)
+}
+
+func (ch *CHWrapper) QueryRow(ctx context.Context, query string, args ...any) interfaces.CHRow {
+	return ch.conn.QueryRow(ctx, query, args...)
+}
+
+func (ch *CHWrapper) PrepareBatch(ctx context.Context, query string, opts ...driver.PrepareBatchOption) (interfaces.CHBatch, error) {
+	return ch.conn.PrepareBatch(ctx, query, opts...)
+}
+
+func (ch *CHWrapper) Close() error {
+	return ch.conn.Close()
 }

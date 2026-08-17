@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	driver "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	interfaces "github.com/Krunis/anti-fraud-system/packages/interfaces"
 	pgconn "github.com/jackc/pgconn"
 	gomock "go.uber.org/mock/gomock"
@@ -302,4 +303,297 @@ func (m *MockRows) Scan(dest ...any) error {
 func (mr *MockRowsMockRecorder) Scan(dest ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scan", reflect.TypeOf((*MockRows)(nil).Scan), dest...)
+}
+
+// MockCH is a mock of CH interface.
+type MockCH struct {
+	ctrl     *gomock.Controller
+	recorder *MockCHMockRecorder
+	isgomock struct{}
+}
+
+// MockCHMockRecorder is the mock recorder for MockCH.
+type MockCHMockRecorder struct {
+	mock *MockCH
+}
+
+// NewMockCH creates a new mock instance.
+func NewMockCH(ctrl *gomock.Controller) *MockCH {
+	mock := &MockCH{ctrl: ctrl}
+	mock.recorder = &MockCHMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCH) EXPECT() *MockCHMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockCH) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockCHMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockCH)(nil).Close))
+}
+
+// PrepareBatch mocks base method.
+func (m *MockCH) PrepareBatch(ctx context.Context, query string, opts ...driver.PrepareBatchOption) (interfaces.CHBatch, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, query}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PrepareBatch", varargs...)
+	ret0, _ := ret[0].(interfaces.CHBatch)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PrepareBatch indicates an expected call of PrepareBatch.
+func (mr *MockCHMockRecorder) PrepareBatch(ctx, query any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, query}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareBatch", reflect.TypeOf((*MockCH)(nil).PrepareBatch), varargs...)
+}
+
+// Query mocks base method.
+func (m *MockCH) Query(ctx context.Context, query string, args ...any) (interfaces.CHRows, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, query}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Query", varargs...)
+	ret0, _ := ret[0].(interfaces.CHRows)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Query indicates an expected call of Query.
+func (mr *MockCHMockRecorder) Query(ctx, query any, args ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, query}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Query", reflect.TypeOf((*MockCH)(nil).Query), varargs...)
+}
+
+// QueryRow mocks base method.
+func (m *MockCH) QueryRow(ctx context.Context, query string, args ...any) interfaces.CHRow {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, query}
+	for _, a := range args {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "QueryRow", varargs...)
+	ret0, _ := ret[0].(interfaces.CHRow)
+	return ret0
+}
+
+// QueryRow indicates an expected call of QueryRow.
+func (mr *MockCHMockRecorder) QueryRow(ctx, query any, args ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, query}, args...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryRow", reflect.TypeOf((*MockCH)(nil).QueryRow), varargs...)
+}
+
+// MockCHRows is a mock of CHRows interface.
+type MockCHRows struct {
+	ctrl     *gomock.Controller
+	recorder *MockCHRowsMockRecorder
+	isgomock struct{}
+}
+
+// MockCHRowsMockRecorder is the mock recorder for MockCHRows.
+type MockCHRowsMockRecorder struct {
+	mock *MockCHRows
+}
+
+// NewMockCHRows creates a new mock instance.
+func NewMockCHRows(ctrl *gomock.Controller) *MockCHRows {
+	mock := &MockCHRows{ctrl: ctrl}
+	mock.recorder = &MockCHRowsMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCHRows) EXPECT() *MockCHRowsMockRecorder {
+	return m.recorder
+}
+
+// Close mocks base method.
+func (m *MockCHRows) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockCHRowsMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockCHRows)(nil).Close))
+}
+
+// Err mocks base method.
+func (m *MockCHRows) Err() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Err")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Err indicates an expected call of Err.
+func (mr *MockCHRowsMockRecorder) Err() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Err", reflect.TypeOf((*MockCHRows)(nil).Err))
+}
+
+// Next mocks base method.
+func (m *MockCHRows) Next() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Next")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// Next indicates an expected call of Next.
+func (mr *MockCHRowsMockRecorder) Next() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Next", reflect.TypeOf((*MockCHRows)(nil).Next))
+}
+
+// Scan mocks base method.
+func (m *MockCHRows) Scan(dest ...any) error {
+	m.ctrl.T.Helper()
+	varargs := []any{}
+	for _, a := range dest {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Scan", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Scan indicates an expected call of Scan.
+func (mr *MockCHRowsMockRecorder) Scan(dest ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scan", reflect.TypeOf((*MockCHRows)(nil).Scan), dest...)
+}
+
+// MockCHRow is a mock of CHRow interface.
+type MockCHRow struct {
+	ctrl     *gomock.Controller
+	recorder *MockCHRowMockRecorder
+	isgomock struct{}
+}
+
+// MockCHRowMockRecorder is the mock recorder for MockCHRow.
+type MockCHRowMockRecorder struct {
+	mock *MockCHRow
+}
+
+// NewMockCHRow creates a new mock instance.
+func NewMockCHRow(ctrl *gomock.Controller) *MockCHRow {
+	mock := &MockCHRow{ctrl: ctrl}
+	mock.recorder = &MockCHRowMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCHRow) EXPECT() *MockCHRowMockRecorder {
+	return m.recorder
+}
+
+// Scan mocks base method.
+func (m *MockCHRow) Scan(dest ...any) error {
+	m.ctrl.T.Helper()
+	varargs := []any{}
+	for _, a := range dest {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Scan", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Scan indicates an expected call of Scan.
+func (mr *MockCHRowMockRecorder) Scan(dest ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scan", reflect.TypeOf((*MockCHRow)(nil).Scan), dest...)
+}
+
+// MockCHBatch is a mock of CHBatch interface.
+type MockCHBatch struct {
+	ctrl     *gomock.Controller
+	recorder *MockCHBatchMockRecorder
+	isgomock struct{}
+}
+
+// MockCHBatchMockRecorder is the mock recorder for MockCHBatch.
+type MockCHBatchMockRecorder struct {
+	mock *MockCHBatch
+}
+
+// NewMockCHBatch creates a new mock instance.
+func NewMockCHBatch(ctrl *gomock.Controller) *MockCHBatch {
+	mock := &MockCHBatch{ctrl: ctrl}
+	mock.recorder = &MockCHBatchMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCHBatch) EXPECT() *MockCHBatchMockRecorder {
+	return m.recorder
+}
+
+// Append mocks base method.
+func (m *MockCHBatch) Append(v ...any) error {
+	m.ctrl.T.Helper()
+	varargs := []any{}
+	for _, a := range v {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Append", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Append indicates an expected call of Append.
+func (mr *MockCHBatchMockRecorder) Append(v ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Append", reflect.TypeOf((*MockCHBatch)(nil).Append), v...)
+}
+
+// Close mocks base method.
+func (m *MockCHBatch) Close() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Close")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockCHBatchMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockCHBatch)(nil).Close))
+}
+
+// Send mocks base method.
+func (m *MockCHBatch) Send() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Send")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Send indicates an expected call of Send.
+func (mr *MockCHBatchMockRecorder) Send() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Send", reflect.TypeOf((*MockCHBatch)(nil).Send))
 }

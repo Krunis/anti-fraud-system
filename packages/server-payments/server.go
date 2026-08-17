@@ -26,7 +26,7 @@ type ServerPayments struct {
 
 	syncProducer *SyncProducer
 
-	postgresDB interfaces.DB
+	postgresDB interfaces.PostgresDB
 
 	paymentsToKafka chan *common.PaymentEvent
 
@@ -265,7 +265,7 @@ func (s *ServerPayments) Stop() error {
 		}
 
 		if s.redisDB != nil {
-			if err := s.redisDB.Close(); err != nil {
+			if err := s.redisDB.Client.Close(); err != nil {
 				errs = append(errs, err)
 			}
 		}
