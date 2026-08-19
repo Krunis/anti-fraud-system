@@ -138,7 +138,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration) error {
 	t := &TwoPhaseBan{
 		redisDB: a.redisDB,
-		txID:    fmt.Sprintf("%d", time.Now().UnixNano()),
+		txID:    "1",
 		userIDs: userIDs,
 		banDur:  duration,
 		ttl:     time.Minute * 5,

@@ -2,12 +2,14 @@ package fraud
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/Krunis/anti-fraud-system/packages/interfaces/mocks"
+	"github.com/go-redis/redismock/v9"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
 	"go.uber.org/mock/gomock"
@@ -74,11 +76,15 @@ func Test_gettingRequestInTx(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	dbRedis, mockRedis := redismock.NewClientMock()
+
+	mockCH := mocks.NewMockCH(ctrl)
+	mockCHRows := mocks.NewMockCHRows(ctrl)
+
 	mockDB := mocks.NewMockDB(ctrl)
-
 	mockTx := mocks.NewMockTx(ctrl)
-
 	mockRow := mocks.NewMockRow(ctrl)
+	mockRows := mocks.NewMockRows(ctrl)
 
 	mockRow.EXPECT().Scan(gomock.Any(),
 		gomock.Any(),
@@ -99,14 +105,48 @@ func Test_gettingRequestInTx(t *testing.T) {
 		gomock.Any(),
 		gomock.Any()).Return(mockRow),
 		mockTx.EXPECT().Commit(gomock.Any()).Return(nil),
-	mockTx.EXPECT().Rollback(gomock.Any()).Return(pgx.ErrTxClosed))
+		mockTx.EXPECT().Rollback(gomock.Any()).Return(pgx.ErrTxClosed))
 
 	mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
 
-	af := &AntiFraud{postgresDB: mockDB}
+	gomock.InOrder(
+		mockCHRows.EXPECT().Next().Return(true),
+		mockCHRows.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(dest ...any) error {
+				*dest[0].(*string) = "321"
+				*dest[1].(*int) = 4
+				*dest[2].(*int) = 3
+				return nil
+			}),
+		mockCHRows.EXPECT().Next().Return(false),
+		mockCHRows.EXPECT().Err().Return(nil),
+	)
+	mockCHRows.EXPECT().Close().Return(nil)
+	mockCH.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockCHRows, nil)
+
+	gomock.InOrder(
+		mockRows.EXPECT().Next().Return(true),
+		mockRows.EXPECT().Scan(gomock.Any()).DoAndReturn(func(dest ...any) error {
+			*dest[0].(*string) = "123"
+			return nil
+		}),
+		mockRows.EXPECT().Next().Return(false),
+		mockRows.EXPECT().Close(),
+	)
+
+	mockDB.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockRows, nil)
+
+	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", "1", "123"), "PENDING", time.Minute * 5).SetVal("OK")
+
+	af := &AntiFraud{postgresDB: mockDB, clickHouse: mockCH, redisDB: &common.Redis{Client: dbRedis}}
 
 	err := af.detectAndBan(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := mockRedis.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+
 	}
 }

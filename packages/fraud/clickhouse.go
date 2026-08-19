@@ -139,7 +139,7 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 		}
 	}
 
-	if checkResult.Score > 100{
+	if checkResult.Score >= 100{
 		checkResult.ShouldBan = true
 	}
 
