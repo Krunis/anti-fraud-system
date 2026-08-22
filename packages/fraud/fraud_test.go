@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func Test_userIDsByDevices(t *testing.T) {
+func Test_userIDsByDevice(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -72,7 +72,7 @@ func Test_userIDsByDevices(t *testing.T) {
 	}
 }
 
-func Test_gettingRequestInTx(t *testing.T) {
+func Test_detectAndBan(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -137,6 +137,11 @@ func Test_gettingRequestInTx(t *testing.T) {
 	mockDB.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockRows, nil)
 
 	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", "1", "123"), "PENDING", time.Minute * 5).SetVal("OK")
+	mockRedis.ExpectSet( fmt.Sprintf("ban:tx:%s:status", "1"), "PREPARED",time.Minute * 5).SetVal("OK")
+	mockRedis.ExpectSet(fmt.Sprintf("fraud:ban:%s", "123"), "1", time.Minute * 15).SetVal("OK")
+	mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:user:%s", "1", "123")).SetVal(1)
+	mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:status", "1")).SetVal(1)
+
 
 	af := &AntiFraud{postgresDB: mockDB, clickHouse: mockCH, redisDB: &common.Redis{Client: dbRedis}}
 

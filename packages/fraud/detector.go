@@ -19,6 +19,11 @@ type TwoPhaseBan struct {
 	ttl     time.Duration
 }
 
+type banTarget struct {
+	UserIDs  []string
+	Duration time.Duration
+}
+
 func (a *AntiFraud) startDetector() {
 	timer := time.NewTimer(time.Second * 3)
 	defer timer.Stop()
@@ -45,9 +50,40 @@ func (a *AntiFraud) startDetector() {
 }
 
 func (a *AntiFraud) detectAndBan(ctx context.Context) error {
+	detReq, err := a.fetchNextRequest(ctx)
+	if err != nil{
+		return err
+	}
+	if detReq == nil{
+		return nil
+	}
+
+	log.Printf("Aggregating for %s", detReq.Payer.AccountID)
+
+	checkResult, err := a.aggrFromClickHouse(ctx, detReq)
+	if err != nil {
+		return fmt.Errorf("Failed to aggregate: %s", err)
+	}
+	if checkResult == nil || !checkResult.ShouldBan {
+		return nil
+	}
+
+	targets := banTargets(detReq, checkResult)
+
+	for _, target := range targets {
+		if err := a.banByUserIDs(ctx, target.UserIDs, target.Duration); err != nil {
+			log.Printf("failed to ban users %v: %s", target.UserIDs, err)
+			return err
+		}
+	}
+	
+	return nil
+}
+
+func (a *AntiFraud) fetchNextRequest(ctx context.Context) (*common.DetectRequest, error){
 	tx, err := a.postgresDB.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("Failed to start DB transaction: %s", err)
+		return nil, fmt.Errorf("Failed to start DB transaction: %s", err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -74,14 +110,14 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 						&detReq.Interaction, &detReq.IntervalSince,
 					)
 	if err == pgx.ErrNoRows {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return fmt.Errorf("Failed to update and fetch row: %s", err)
+		return nil, fmt.Errorf("Failed to update and fetch row: %s", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil{
-		return fmt.Errorf("Failed to commit: %s", err)
+		return nil, fmt.Errorf("Failed to commit: %s", err)
 	}
 
 	//retrying after hard operations
@@ -91,18 +127,19 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 		detReq.IntervalSince = &startTime
 	}
 
+	return detReq, nil
+}
+
+func banTargets(detReq *common.DetectRequest, checkResult *FraudCheckResult) []banTarget {
+	if len(checkResult.BanDetails) > 0 {
+		targets := make([]banTarget, 0, len(checkResult.BanDetails))
+		for _, bd := range checkResult.BanDetails {
+			targets = append(targets, banTarget{UserIDs: bd.Targets, Duration: bd.Duration})
+		}
+		return targets
+	}
+
 	var toBan []string
-
-	log.Printf("Aggregating for %s", detReq.Payer.AccountID)
-
-	checkResult, err := a.aggrFromClickHouse(ctx, detReq)
-	if err != nil {
-		return fmt.Errorf("Failed to aggregate: %s", err)
-	}
-
-	if checkResult == nil || !checkResult.ShouldBan {
-		return nil
-	}
 
 	switch detReq.Interaction {
 	case common.PayerInteraction:
@@ -110,29 +147,12 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	case common.PayeeInteraction:
 		toBan = append(toBan, detReq.Payee.MerchantID)
 	}
-
-	if checkResult.BanDetails != nil {
-		for _, banDetail := range checkResult.BanDetails {
-			if err := a.banByUserIDs(ctx, banDetail.Targets, banDetail.Duration); err != nil {
-				log.Println("Failed to ban users: ")
-				for _, userID := range banDetail.Targets {
-					log.Print(userID + " ")
-				}
-
-				return err
-			}
-		}
-	} else {
-		if err := a.banByUserIDs(ctx, toBan, 15); err != nil {
-			log.Println("Failed to ban users: ")
-			for _, userID := range toBan {
-				log.Print(userID + " ")
-			}
-			return err
-		}
+	
+	if len(toBan) == 0 {
+		return nil
 	}
 
-	return nil
+	return []banTarget{{UserIDs: toBan, Duration: 15 * time.Minute}} // тут же и видно баг с "15" — легко поправить
 }
 
 func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration) error {

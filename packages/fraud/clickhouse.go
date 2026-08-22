@@ -297,7 +297,7 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 	fraudResult.BanDetails = append(fraudResult.BanDetails, &BanDetail{
 		Targets: userIDs,
 		Reason: "in the users list that has a suspicious device" ,
-		Duration: 15,
+		Duration: time.Minute * 15,
 	})
 	if err != nil{
 		return nil, err
