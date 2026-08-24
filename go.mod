@@ -11,6 +11,7 @@ require (
 	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/redis/go-redis/v9 v9.19.0
+	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
 )
 
@@ -39,6 +40,7 @@ require (
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
@@ -51,4 +53,5 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
