@@ -152,7 +152,7 @@ func banTargets(detReq *common.DetectRequest, checkResult *FraudCheckResult) []b
 		return nil
 	}
 
-	return []banTarget{{UserIDs: toBan, Duration: 15 * time.Minute}} // тут же и видно баг с "15" — легко поправить
+	return []banTarget{{UserIDs: toBan, Duration: 15 * time.Minute}} 
 }
 
 func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration) error {
