@@ -2,6 +2,7 @@ package fraud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -71,7 +72,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	targets := banTargets(detReq, checkResult)
 
 	for _, target := range targets {
-		if err := a.banByUserIDs(ctx, target.UserIDs, target.Duration); err != nil {
+		if err := a.banByUserIDs(ctx, target.UserIDs, target.Duration, uuid.New()); err != nil {
 			log.Printf("failed to ban users %v: %s", target.UserIDs, err)
 			return err
 		}
@@ -155,10 +156,10 @@ func banTargets(detReq *common.DetectRequest, checkResult *FraudCheckResult) []b
 	return []banTarget{{UserIDs: toBan, Duration: 15 * time.Minute}} 
 }
 
-func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration) error {
+func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration, txID uuid.UUID) error {
 	t := &TwoPhaseBan{
 		redisDB: a.redisDB,
-		txID:    "1",
+		txID:    txID.String(),
 		userIDs: userIDs,
 		banDur:  duration,
 		ttl:     time.Minute * 5,
@@ -172,7 +173,11 @@ func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration
 		log.Printf("validation error: %s", err)
 
 		err := t.rollbackBans(ctx)
-		return fmt.Errorf("failed to rollback bans: %s", err)
+		if err != nil{
+			return fmt.Errorf("failed to rollback bans: %s", err)
+		}
+		
+		return nil
 	}
 
 	if err := t.commitBan(ctx); err != nil {
@@ -182,35 +187,6 @@ func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration
 	log.Printf("Banned: %s", userIDs)
 
 	return nil
-}
-
-func (a *AntiFraud) userIDsByDevices(ctx context.Context, devices []string) ([]string, error) {
-	userIDs := make([]string, 0, len(devices))
-
-	var userID string
-
-	for _, device := range devices {
-		rows, err := a.postgresDB.Query(ctx, `
-								SELECT account_id
-								FROM payment_events
-								WHERE device_id = $1
-								`, device)
-		if err != nil {
-			log.Printf("failed to get account id from psotgres: %s", err)
-		}
-
-		for rows.Next() {
-			if err := rows.Scan(&userID); err != nil {
-				log.Printf("failed to scan account_id row: %s", err)
-			}
-
-			userIDs = append(userIDs, userID)
-		}
-
-		rows.Close()
-	}
-
-	return userIDs, nil
 }
 
 func (t *TwoPhaseBan) prepareBan(ctx context.Context) error {
@@ -233,6 +209,9 @@ func (t *TwoPhaseBan) prepareBan(ctx context.Context) error {
 }
 
 func (t *TwoPhaseBan) validateUsers(ctx context.Context) error {
+	if len(t.userIDs) > 2{
+		return errors.New("some error")
+	}
 
 	return nil
 }

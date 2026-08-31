@@ -138,6 +138,8 @@ func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.Detec
 		if err != nil {
 			return nil, err
 		}
+	default:
+		return nil, errors.New("uknown interaction type")
 	}
 
 	if checkResult.Score >= 100 {
@@ -264,18 +266,16 @@ func (a *AntiFraud) checkPersonalInteraction(ctx context.Context, detReq *common
 func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {
 	checkResult := &FraudCheckResult{}
 
-	deviceIDs := []string{}
-
 	var deviceID string
 
-	var uniqAccounts, uniqIPs int
+	var accountIDs []string
 
-	var userIDs []string
+	var uniqIPs int
 
 	rows, err := a.clickHouse.Query(ctx, `
 												SELECT 
 													device_id,
-													uniq(account_id) AS unique_accounts,
+													groupUniqArray(account_id) AS account_ids,
 													uniq(ip) AS unique_ips,
 												FROM check_table
 												WHERE event_time >= $1
@@ -288,31 +288,27 @@ func (a *AntiFraud) checkGeneralInteraction(ctx context.Context, detReq *common.
 	defer rows.Close()
 
 	for rows.Next() {
-		if err := rows.Scan(&deviceID, &uniqAccounts, &uniqIPs); err != nil {
+		if err := rows.Scan(&deviceID, &accountIDs, &uniqIPs); err != nil {
 			return nil, fmt.Errorf("failed to scan row while %s interaction: %w", detReq.Interaction, err)
 		}
 
-		log.Printf("From clickhouse: with %s device id %d unique accounts with %d unique IPs, banning...", deviceID, uniqAccounts, uniqIPs)
-
-		deviceIDs = append(deviceIDs, deviceID)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	if len(deviceIDs) > 0 {
-		checkResult.Score += 100
-		userIDs, err = a.userIDsByDevices(ctx, deviceIDs)
-		if err != nil {
-			return nil, err
-		}
+		log.Printf("From clickhouse: with %s device id %v with %d unique IPs, banning...", deviceID, accountIDs, uniqIPs)
 
 		checkResult.BanDetails = append(checkResult.BanDetails, &BanDetail{
-			Targets:  userIDs,
+			Targets:  accountIDs,
 			Reason:   "in the users list that has a suspicious device",
 			Duration: time.Minute * 15,
 		})
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(checkResult.BanDetails) > 0 {
+		checkResult.Score += 100
+	}
+
 	return checkResult, nil
+
 }

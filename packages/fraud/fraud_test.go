@@ -4,73 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"reflect"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/Krunis/anti-fraud-system/packages/interfaces/mocks"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/mock/gomock"
+	"github.com/go-redis/redismock/v9"
 )
-
-func Test_userIDsByDevice(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mocks.NewMockDB(ctrl)
-
-	devices := []string{"dev-1", "dev-2"}
-
-	rowsDev1 := mocks.NewMockRows(ctrl)
-	gomock.InOrder(
-		rowsDev1.EXPECT().Next().Return(true),
-		rowsDev1.EXPECT().Scan(gomock.Any()).DoAndReturn(func(dest ...any) error {
-			*dest[0].(*string) = "user-1"
-			return nil
-		}),
-		rowsDev1.EXPECT().Next().Return(false),
-	)
-	rowsDev1.EXPECT().Close()
-
-	rowsDev2 := mocks.NewMockRows(ctrl)
-	gomock.InOrder(
-		rowsDev2.EXPECT().Next().Return(true),
-		rowsDev2.EXPECT().Scan(gomock.Any()).DoAndReturn(func(dest ...any) error {
-			*dest[0].(*string) = "user-2"
-			return nil
-		}),
-		rowsDev2.EXPECT().Next().Return(true),
-		rowsDev2.EXPECT().Scan(gomock.Any()).DoAndReturn(func(dest ...any) error {
-			*dest[0].(*string) = "user-3"
-			return nil
-		}),
-		rowsDev2.EXPECT().Next().Return(false),
-	)
-	rowsDev2.EXPECT().Close()
-
-	gomock.InOrder(
-		mockDB.EXPECT().
-			Query(gomock.Any(), gomock.Any(), "dev-1").
-			Return(rowsDev1, nil),
-		mockDB.EXPECT().
-			Query(gomock.Any(), gomock.Any(), "dev-2").
-			Return(rowsDev2, nil),
-	)
-
-	af := &AntiFraud{postgresDB: mockDB}
-
-	userIDs, err := af.userIDsByDevices(context.Background(), devices)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := []string{"user-1", "user-2", "user-3"}
-	if !reflect.DeepEqual(userIDs, want) {
-		t.Errorf("expected %v, got %v", want, userIDs)
-	}
-}
 
 // func Test_detectAndBan(t *testing.T) {
 // 	ctrl := gomock.NewController(t)
@@ -182,29 +131,6 @@ func Test_fetchNextRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "123", req.Payer.AccountID)
 
-}
-
-func Test_banTargets_withBanDetails(t *testing.T) {
-	detReq := &common.DetectRequest{Interaction: common.GeneralInteraction}
-	checkResult := &FraudCheckResult{
-		BanDetails: []*BanDetail{{Targets: []string{"123"}, Duration: 15 * time.Minute}},
-	}
-
-	got := banTargets(detReq, checkResult)
-
-	require.Equal(t, []banTarget{{UserIDs: []string{"123"}, Duration: 15 * time.Minute}}, got)
-}
-
-func Test_banTargets_payerFallback(t *testing.T) {
-	detReq := &common.DetectRequest{
-		Interaction: common.PayerInteraction,
-		Payer:       &common.PayerType{AccountID: "acc1"},
-	}
-	checkResult := &FraudCheckResult{}
-
-	got := banTargets(detReq, checkResult)
-
-	require.Equal(t, []banTarget{{UserIDs: []string{"acc1"}, Duration: 15 * time.Minute}}, got)
 }
 
 func Test_aggrFromClickhouse_PayerInteraction(t *testing.T) {
@@ -413,9 +339,9 @@ func Test_aggrFromClickhouse_PersonalInteraction(t *testing.T) {
 }
 
 type generalScanRow struct {
-	deviceID     string
-	uniqAccounts int
-	uniqIPs      int
+	deviceID   string
+	accountIDs []string
+	uniqIPs    int
 }
 
 func setupCHRowsMock(ctrl *gomock.Controller, rows []generalScanRow, rowsErr error) *mocks.MockCHRows {
@@ -429,7 +355,7 @@ func setupCHRowsMock(ctrl *gomock.Controller, rows []generalScanRow, rowsErr err
 			mockCHRows.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(dest ...any) error {
 					*dest[0].(*string) = r.deviceID
-					*dest[1].(*int) = r.uniqAccounts
+					*dest[1].(*[]string) = r.accountIDs
 					*dest[2].(*int) = r.uniqIPs
 					return nil
 				}),
@@ -462,7 +388,7 @@ func Test_aggrFromClickhouse_GeneralInteraction(t *testing.T) {
 		{
 			name: "single row",
 			rows: []generalScanRow{
-				{deviceID: "dev1", uniqAccounts: 10, uniqIPs: 3},
+				{deviceID: "dev1", accountIDs: []string{"123", "324"}, uniqIPs: 3},
 			},
 			rowsErr:   nil,
 			wantScore: 100,
@@ -471,8 +397,8 @@ func Test_aggrFromClickhouse_GeneralInteraction(t *testing.T) {
 		{
 			name: "multiple rows",
 			rows: []generalScanRow{
-				{deviceID: "dev1", uniqAccounts: 4, uniqIPs: 3},
-				{deviceID: "dev2", uniqAccounts: 4, uniqIPs: 4},
+				{deviceID: "dev1", accountIDs: []string{"123", "324"}, uniqIPs: 3},
+				{deviceID: "dev2", accountIDs: []string{"123", "324"}, uniqIPs: 4},
 			},
 			rowsErr:   nil,
 			wantScore: 100,
@@ -487,7 +413,7 @@ func Test_aggrFromClickhouse_GeneralInteraction(t *testing.T) {
 		{
 			name: "some error with row",
 			rows: []generalScanRow{
-				{deviceID: "dev1", uniqAccounts: 4, uniqIPs: 3},
+				{deviceID: "dev1", accountIDs: []string{"123", "324"}, uniqIPs: 3},
 			},
 			rowsErr:   errors.New("some err"),
 			wantScore: 0,
@@ -509,7 +435,7 @@ func Test_aggrFromClickhouse_GeneralInteraction(t *testing.T) {
 				IntervalSince: nil,
 			}
 
-			result, err := af.checkGeneralInteraction(context.Background(), detReq)
+			result, err := af.aggrFromClickHouse(context.Background(), detReq)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -521,4 +447,153 @@ func Test_aggrFromClickhouse_GeneralInteraction(t *testing.T) {
 
 		})
 	}
+}
+
+func Test_aggrFromClickHouse_unknownInteraction(t *testing.T) {
+	af := &AntiFraud{clickHouse: mocks.NewMockCH(gomock.NewController(t))}
+	detReq := &common.DetectRequest{Interaction: "unknown"}
+
+	result, err := af.aggrFromClickHouse(context.Background(), detReq)
+
+	require.Error(t, err)
+	require.Nil(t, result)
+}
+
+func Test_banTargets_withBanDetails(t *testing.T) {
+	detReq := &common.DetectRequest{Interaction: common.GeneralInteraction}
+	checkResult := &FraudCheckResult{
+		BanDetails: []*BanDetail{{Targets: []string{"123"}, Duration: 15 * time.Minute}},
+	}
+
+	got := banTargets(detReq, checkResult)
+
+	require.Equal(t, []banTarget{{UserIDs: []string{"123"}, Duration: 15 * time.Minute}}, got)
+}
+
+func Test_banTargets_payerFallback(t *testing.T) {
+	detReq := &common.DetectRequest{
+		Interaction: common.PayerInteraction,
+		Payer:       &common.PayerType{AccountID: "acc1"},
+	}
+	checkResult := &FraudCheckResult{}
+
+	got := banTargets(detReq, checkResult)
+
+	require.Equal(t, []banTarget{{UserIDs: []string{"acc1"}, Duration: 15 * time.Minute}}, got)
+}
+
+func Test_banTargets_payeeFallback(t *testing.T) {
+	detReq := &common.DetectRequest{
+		Interaction: common.PayeeInteraction,
+		Payee:       &common.PayeeType{MerchantID: "1cca"},
+	}
+	checkResult := &FraudCheckResult{}
+
+	got := banTargets(detReq, checkResult)
+
+	require.Equal(t, []banTarget{{UserIDs: []string{"1cca"}, Duration: 15 * time.Minute}}, got)
+}
+
+func Test_banTargets_withoutUserIDs(t *testing.T) {
+	detReq := &common.DetectRequest{}
+	checkResult := &FraudCheckResult{}
+
+	got := banTargets(detReq, checkResult)
+
+	var nilTarget []banTarget
+
+	require.Equal(t, nilTarget, got)
+}
+
+func Test_prepareBan_execError(t *testing.T){
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dbRedis, mockRedis := redismock.NewClientMock()
+
+	tpb := &TwoPhaseBan{
+		redisDB: &common.Redis{Client: dbRedis},
+		txID: uuid.New().String(),
+		userIDs: []string{"alice", "bob"},
+		ttl: time.Minute * 5,
+	}
+
+	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, tpb.userIDs[0]), "PENDING", tpb.ttl).SetVal("OK")
+	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, tpb.userIDs[1]), "PENDING", tpb.ttl).SetErr(errors.New("redis connection lost"))
+	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:status", "1"), "PREPARED", tpb.ttl).SetVal("OK")
+	
+	err := tpb.prepareBan(context.Background())
+    
+    require.Error(t, err)
+    assert.Contains(t, err.Error(), "redis connection lost")
+}
+
+func Test_Integration_banByUserIDs(t *testing.T) {
+	ctx := context.Background()
+
+	req := testcontainers.ContainerRequest{
+		Image:        "redis:7-alpine",
+		ExposedPorts: []string{"6379/tcp"},
+		WaitingFor:   wait.ForLog("Ready to accept connections"),
+	}
+
+	redisContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: req,
+		Started:          true,
+	})
+	require.NoError(t, err)
+
+	defer func() {
+		if err := redisContainer.Terminate(ctx); err != nil {
+			t.Logf("failed to terminate container: %s", err)
+		}
+	}()
+
+	host, err := redisContainer.Host(ctx)
+	require.NoError(t, err)
+
+	port, err := redisContainer.MappedPort(ctx, "6379")
+	require.NoError(t, err)
+
+	addr := fmt.Sprintf("%s:%s", host, port.Port())
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: addr,
+	})
+	defer rdb.Close()
+
+	af := &AntiFraud{
+		redisDB: &common.Redis{Client: rdb},
+	}
+
+	userIDs := []string{"alice", "bob"}
+	banDuration := 10 * time.Minute
+	txID := uuid.New()
+
+	err = af.banByUserIDs(ctx, userIDs, banDuration, txID)
+	require.NoError(t, err)
+
+	for _, userID := range userIDs {
+		key := "fraud:ban:" + userID
+
+		val, err := rdb.Get(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, "1", val)
+
+		ttl, err := rdb.TTL(ctx, key).Result()
+		assert.NoError(t, err)
+		assert.True(t, ttl > 5*time.Minute && ttl <= 10*time.Minute)
+	}
+
+	for _, userID := range userIDs {
+		tempKey := "ban:tx:" + txID.String() + ":user:" + userID
+		exists, err := rdb.Exists(ctx, tempKey).Result()
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), exists)
+	}
+
+	statusKey := "ban:tx:" + txID.String() + ":status"
+	exists, err := rdb.Exists(ctx, statusKey).Result()
+	assert.NoError(t, err)
+	assert.Equal(t, int64(0), exists)
 }
