@@ -10,6 +10,7 @@ import (
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/Krunis/anti-fraud-system/packages/interfaces/mocks"
+	"github.com/go-redis/redismock/v9"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
 	"github.com/redis/go-redis/v9"
@@ -18,7 +19,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/mock/gomock"
-	"github.com/go-redis/redismock/v9"
 )
 
 // func Test_detectAndBan(t *testing.T) {
@@ -505,7 +505,7 @@ func Test_banTargets_withoutUserIDs(t *testing.T) {
 	require.Equal(t, nilTarget, got)
 }
 
-func Test_prepareBan_execError(t *testing.T){
+func Test_prepareBan_secondUserError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -513,19 +513,131 @@ func Test_prepareBan_execError(t *testing.T){
 
 	tpb := &TwoPhaseBan{
 		redisDB: &common.Redis{Client: dbRedis},
-		txID: uuid.New().String(),
+		txID:    uuid.New().String(),
 		userIDs: []string{"alice", "bob"},
-		ttl: time.Minute * 5,
+		ttl:     time.Minute * 5,
 	}
 
 	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, tpb.userIDs[0]), "PENDING", tpb.ttl).SetVal("OK")
 	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, tpb.userIDs[1]), "PENDING", tpb.ttl).SetErr(errors.New("redis connection lost"))
-	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:status", "1"), "PREPARED", tpb.ttl).SetVal("OK")
-	
+
 	err := tpb.prepareBan(context.Background())
-    
-    require.Error(t, err)
-    assert.Contains(t, err.Error(), "redis connection lost")
+
+	require.NoError(t, mockRedis.ExpectationsWereMet())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redis connection lost")
+}
+
+func Test_validateFail_rollbackBans(t *testing.T) {
+	t.Run("rollback success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		dbRedis, mockRedis := redismock.NewClientMock()
+		tpb := &TwoPhaseBan{
+			redisDB: &common.Redis{Client: dbRedis},
+			txID:    uuid.New().String(),
+			userIDs: []string{"alice", "bob", "charlie"},
+			ttl:     time.Minute * 5,
+		}
+
+		for _, userID := range tpb.userIDs {
+			mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, userID)).SetVal(1)
+		}
+
+		mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:status", tpb.txID)).SetVal(1)
+
+		err := tpb.validateAndRollback(context.Background())
+
+		require.NoError(t, mockRedis.ExpectationsWereMet())
+		require.NoError(t, err)
+	})
+
+	t.Run("rollback failed", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		dbRedis, mockRedis := redismock.NewClientMock()
+		tpb := &TwoPhaseBan{
+			redisDB: &common.Redis{Client: dbRedis},
+			txID:    uuid.New().String(),
+			userIDs: []string{"alice", "bob", "charlie"},
+			ttl:     time.Minute * 5,
+		}
+
+		mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, tpb.userIDs[0])).SetErr(errors.New("redis connection lost"))
+
+		err := tpb.validateAndRollback(context.Background())
+
+		require.NoError(t, mockRedis.ExpectationsWereMet())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "redis connection lost")
+	})
+}
+
+func Test_validateSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	dbRedis, mockRedis := redismock.NewClientMock()
+
+	tpb := &TwoPhaseBan{
+		redisDB: &common.Redis{Client: dbRedis},
+		userIDs: []string{"alice", "bob"},
+	}
+
+	err := tpb.validateAndRollback(context.Background())
+
+	require.NoError(t, err)
+	require.NoError(t, mockRedis.ExpectationsWereMet())
+}
+
+func Test_commitBan(t *testing.T) {
+	t.Run("commit success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		dbRedis, mockRedis := redismock.NewClientMock()
+		tpb := &TwoPhaseBan{
+			redisDB: &common.Redis{Client: dbRedis},
+			txID:    uuid.New().String(),
+			userIDs: []string{"alice", "bob"},
+			banDur:  time.Minute * 5,
+		}
+
+		for _, userID := range tpb.userIDs {
+			mockRedis.ExpectSet(fmt.Sprintf("fraud:ban:%s", userID), "1", tpb.banDur).SetVal("OK")
+			mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, userID)).SetVal(1)
+		}
+
+		mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:status", tpb.txID)).SetVal(1)
+
+		err := tpb.commitBan(context.Background())
+
+		require.NoError(t, mockRedis.ExpectationsWereMet())
+		require.NoError(t, err)
+	})
+
+	t.Run("commit failed", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		dbRedis, mockRedis := redismock.NewClientMock()
+		tpb := &TwoPhaseBan{
+			redisDB: &common.Redis{Client: dbRedis},
+			txID:    uuid.New().String(),
+			userIDs: []string{"alice", "bob"},
+			banDur:  time.Minute * 5,
+		}
+
+		mockRedis.ExpectSet(fmt.Sprintf("fraud:ban:%s", tpb.userIDs[0]), "1", tpb.banDur).SetErr(errors.New("redis connection lost"))
+
+		err := tpb.commitBan(context.Background())
+
+		require.NoError(t, mockRedis.ExpectationsWereMet())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "redis connection lost")	
+	})
 }
 
 func Test_Integration_banByUserIDs(t *testing.T) {

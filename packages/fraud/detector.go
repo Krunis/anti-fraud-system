@@ -2,7 +2,6 @@ package fraud
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -169,15 +168,8 @@ func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration
 		return fmt.Errorf("failed to prepare bans: %s", err)
 	}
 
-	if err := t.validateUsers(ctx); err != nil {
-		log.Printf("validation error: %s", err)
-
-		err := t.rollbackBans(ctx)
-		if err != nil{
-			return fmt.Errorf("failed to rollback bans: %s", err)
-		}
-		
-		return nil
+	if err := t.validateAndRollback(ctx); err != nil{
+		return err
 	}
 
 	if err := t.commitBan(ctx); err != nil {
@@ -208,12 +200,28 @@ func (t *TwoPhaseBan) prepareBan(ctx context.Context) error {
 	return nil
 }
 
-func (t *TwoPhaseBan) validateUsers(ctx context.Context) error {
-	if len(t.userIDs) > 2{
-		return errors.New("some error")
+func (t *TwoPhaseBan) validateAndRollback(ctx context.Context) error{
+	if !t.validateUsers(ctx) {
+		log.Println("validation failed")
+
+		if err := t.rollbackBans(ctx); err != nil{
+			return fmt.Errorf("failed to rollback bans: %s", err)
+		}
+		
+		log.Println("rollback bans success")
+
+		return nil
 	}
 
 	return nil
+}
+
+func (t *TwoPhaseBan) validateUsers(ctx context.Context) bool {
+	if len(t.userIDs) > 2{
+		return false
+	}
+
+	return true
 }
 
 func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
