@@ -105,31 +105,142 @@ import (
 // }
 
 func Test_fetchNextRequest(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockDB := mocks.NewMockDB(ctrl)
-	mockTx := mocks.NewMockTx(ctrl)
-	mockRow := mocks.NewMockRow(ctrl)
+	t.Run("success with interval", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDB := mocks.NewMockDB(ctrl)
+		mockTx := mocks.NewMockTx(ctrl)
+		mockRow := mocks.NewMockRow(ctrl)
 
-	mockRow.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(dest ...any) error {
-			*dest[1].(*string) = "123"
-			*dest[2].(*string) = "321"
-			*dest[3].(*common.InteractionType) = common.PayerInteraction
-			return nil
+		mockRow.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(dest ...any) error {
+				*dest[1].(*string) = "123"
+				*dest[2].(*string) = "321"
+				*dest[3].(*common.InteractionType) = common.PayerInteraction
+				return nil
+			})
+
+		gomock.InOrder(
+			mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any()).Return(mockRow),
+			mockTx.EXPECT().Commit(gomock.Any()).Return(nil),
+			mockTx.EXPECT().Rollback(gomock.Any()).Return(pgx.ErrTxClosed),
+		)
+		mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
+
+		af := &AntiFraud{postgresDB: mockDB}
+		req, err := af.fetchNextRequest(context.Background())
+
+		startTime := time.Unix(0, 0)
+
+		require.WithinDuration(t, startTime, *req.IntervalSince, time.Second)
+		require.NoError(t, err)
+		require.Equal(t, "123", req.Payer.AccountID)
+	})
+
+	t.Run("success w/o interval", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDB := mocks.NewMockDB(ctrl)
+		mockTx := mocks.NewMockTx(ctrl)
+		mockRow := mocks.NewMockRow(ctrl)
+
+		mockRow.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+			DoAndReturn(func(dest ...any) error {
+				*dest[1].(*string) = "123"
+				*dest[2].(*string) = "321"
+				*dest[3].(*common.InteractionType) = common.PayerInteraction
+				*dest[4].(**time.Time) = &time.Time{}
+				return nil
+			})
+
+		gomock.InOrder(
+			mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any()).Return(mockRow),
+			mockTx.EXPECT().Commit(gomock.Any()).Return(nil),
+			mockTx.EXPECT().Rollback(gomock.Any()).Return(pgx.ErrTxClosed),
+		)
+		mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
+
+		af := &AntiFraud{postgresDB: mockDB}
+		req, err := af.fetchNextRequest(context.Background())
+
+		require.NotNil(t, req.IntervalSince)
+		require.NoError(t, err)
+		require.Equal(t, "123", req.Payer.AccountID)
+	})
+
+	t.Run("begintx fail", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDB := mocks.NewMockDB(ctrl)
+
+		mockDB.EXPECT().Begin(gomock.Any()).Return(nil, errors.New("connect to DB failed"))
+
+		af := &AntiFraud{postgresDB: mockDB}
+
+		req, err := af.fetchNextRequest(context.Background())
+
+		assert.Nil(t, req)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "connect to DB failed")
+	})
+
+	tests := []struct {
+		name    string
+		scanErr error
+		retErr  error
+	}{
+		{
+			name:    "scan fail noRows",
+			scanErr: pgx.ErrNoRows,
+			retErr:  nil,
+		},
+		{
+			name:    "scan fail some error",
+			scanErr: errors.New("some err"),
+			retErr:  fmt.Errorf("Failed to update and fetch row: %s", "some err"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDB := mocks.NewMockDB(ctrl)
+			mockTx := mocks.NewMockTx(ctrl)
+			mockRow := mocks.NewMockRow(ctrl)
+
+			mockRow.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(tt.scanErr)
+
+			mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockRow)
+			mockTx.EXPECT().Rollback(gomock.Any()).Return(nil)
+
+			mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
+
+			af := &AntiFraud{postgresDB: mockDB}
+
+			req, err := af.fetchNextRequest(context.Background())
+
+			require.Nil(t, req)
+			require.Equal(t, err, tt.retErr)
 		})
+	}
 
-	gomock.InOrder(
-		mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any()).Return(mockRow),
-		mockTx.EXPECT().Commit(gomock.Any()).Return(nil),
-		mockTx.EXPECT().Rollback(gomock.Any()).Return(pgx.ErrTxClosed),
-	)
-	mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
+	t.Run("commit fail", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDB := mocks.NewMockDB(ctrl)
+		mockTx := mocks.NewMockTx(ctrl)
+		mockRow := mocks.NewMockRow(ctrl)
 
-	af := &AntiFraud{postgresDB: mockDB}
-	req, err := af.fetchNextRequest(context.Background())
+		mockRow.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
-	require.NoError(t, err)
-	require.Equal(t, "123", req.Payer.AccountID)
+		mockTx.EXPECT().Commit(gomock.Any()).Return(errors.New("some err"))
+		mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockRow)
+		mockTx.EXPECT().Rollback(gomock.Any()).Return(nil)
+
+		mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
+
+		af := &AntiFraud{postgresDB: mockDB}
+
+		req, err := af.fetchNextRequest(context.Background())
+
+		require.Nil(t, req)
+		require.Contains(t, err.Error(), "some err")
+	})	
 
 }
 
@@ -528,7 +639,7 @@ func Test_prepareBan_secondUserError(t *testing.T) {
 	assert.Contains(t, err.Error(), "redis connection lost")
 }
 
-func Test_validateFail_rollbackBans(t *testing.T) {
+func Test_validationFail_rollbackBans(t *testing.T) {
 	t.Run("rollback success", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -575,7 +686,7 @@ func Test_validateFail_rollbackBans(t *testing.T) {
 	})
 }
 
-func Test_validateSuccess(t *testing.T) {
+func Test_validationSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -636,7 +747,7 @@ func Test_commitBan(t *testing.T) {
 
 		require.NoError(t, mockRedis.ExpectationsWereMet())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "redis connection lost")	
+		assert.Contains(t, err.Error(), "redis connection lost")
 	})
 }
 
