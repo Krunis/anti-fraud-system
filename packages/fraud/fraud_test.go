@@ -616,7 +616,8 @@ func Test_banTargets_withoutUserIDs(t *testing.T) {
 	require.Equal(t, nilTarget, got)
 }
 
-func Test_prepareBan_secondUserError(t *testing.T) {
+func Test_prepareBan(t *testing.T) {
+	// t.Run("set")
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
