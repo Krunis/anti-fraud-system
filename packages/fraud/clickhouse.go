@@ -36,12 +36,27 @@ func (a *AntiFraud) pollerToClickHouse() {
 	for {
 		select {
 		case <-a.lifecycle.Ctx.Done():
+			if err := sendBatch(batch, count); err != nil {
+				log.Printf("Failed to send batch: %s", err)
+			}
+
+			if batch != nil {
+				if err := batch.Close(); err != nil {
+					log.Printf("Failed to close batch: %s", err)
+				}
+			}
+
 			return
 		case <-timer.C:
-			sendBatch(batch, count)
+			if err := sendBatch(batch, count); err != nil {
+				log.Printf("Failed to send batch: %s", err)
+			}
+
+			if err := batch.Close(); err != nil {
+				log.Printf("Failed to close batch: %s", err)
+			}
 
 			batch = nil
-
 			count = 0
 
 			timer.Reset(time.Second * 5)
@@ -49,24 +64,29 @@ func (a *AntiFraud) pollerToClickHouse() {
 			if !ok {
 				log.Println("While sending batch fail to get from channel")
 
-				sendBatch(batch, count)
+				if err := sendBatch(batch, count); err != nil {
+					log.Printf("Failed to send batch: %s", err)
+				}
+
+				if err := batch.Close(); err != nil {
+					log.Printf("Failed to close batch: %s", err)
+				}
 
 				return
 			}
 
 			if batch == nil {
 				batch, err = a.clickHouse.PrepareBatch(a.lifecycle.Ctx, `
-										INSERT INTO check.payments (
-										event_id, event_time, direction, 
-										amount, currency, transaction_type,
-										account_id, merchant_id, merchant_name, country,
-										channel, device_id, ip, user_agent)`,
+											INSERT INTO check.payments (
+											event_id, event_time, direction, 
+											amount, currency, transaction_type,
+											account_id, merchant_id, merchant_name, country,
+											channel, device_id, ip, user_agent)`,
 				)
 				if err != nil {
 					log.Printf("Failed to prepare batch: %s", err)
 					continue
 				}
-				defer batch.Close()
 
 				count = 0
 			}
@@ -89,6 +109,7 @@ func (a *AntiFraud) pollerToClickHouse() {
 			)
 			if err != nil {
 				log.Printf("Failed to append in batch: %s", err)
+				continue
 			}
 
 			count++
@@ -98,18 +119,18 @@ func (a *AntiFraud) pollerToClickHouse() {
 	}
 }
 
-func sendBatch(batch interfaces.CHBatch, count int) {
+func sendBatch(batch interfaces.CHBatch, count int) error {
 	if batch == nil || count == 0 {
-		return
+		return nil
 	}
 
 	if err := batch.Send(); err != nil {
-		log.Printf("Failed to send batch. Error: %s", err)
-		return
+		return err
 	}
 
 	log.Println("Batch sent")
 
+	return nil
 }
 
 func (a *AntiFraud) aggrFromClickHouse(ctx context.Context, detReq *common.DetectRequest) (*FraudCheckResult, error) {

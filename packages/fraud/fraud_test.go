@@ -636,8 +636,131 @@ func Test_commitBan(t *testing.T) {
 
 		require.NoError(t, mockRedis.ExpectationsWereMet())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "redis connection lost")	
+		assert.Contains(t, err.Error(), "redis connection lost")
 	})
+}
+func Test_pollerToClickHouse(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupMocks    func(*mocks.MockCH, *mocks.MockCHBatch)
+		sendEvent     bool
+		closeChannel  bool
+		cancelContext bool
+	}{
+		{
+			name: "success",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
+				gomock.InOrder(
+					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+					mockCHBatch.EXPECT().Send().Return(nil),
+					mockCHBatch.EXPECT().Close().Return(nil),
+				)
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+		},
+		{
+			name: "preparebatch fail",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(nil, errors.New("prepare failed"))
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+		},
+		{
+			name: "appendbatch fail",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
+				gomock.InOrder(
+					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("append failed")),
+					mockCHBatch.EXPECT().Close().Return(nil),
+				)
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			mockCH := mocks.NewMockCH(ctrl)
+			mockCHBatch := mocks.NewMockCHBatch(ctrl)
+
+			ctx, cancel := context.WithCancel(context.Background())
+
+			af := &AntiFraud{
+				clickHouse: mockCH,
+				paymentCh:  make(chan *common.PaymentEvent, 1000),
+				lifecycle: common.Lifecycle{
+					Ctx:    ctx,
+					Cancel: cancel,
+				},
+			}
+
+			tt.setupMocks(mockCH, mockCHBatch)
+
+			af.wg.Go(af.pollerToClickHouse)
+
+			if tt.sendEvent {
+				af.paymentCh <- createTestPaymentEvent()
+			}
+
+			if tt.cancelContext {
+				time.Sleep(time.Millisecond * 100)
+				af.lifecycle.Cancel()
+			}
+
+			done := make(chan struct{})
+			go func() {
+				af.wg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(1 * time.Second):
+				t.Fatal("pollerToClickHouse did not stop after context cancel")
+			}
+		})
+	}
+
+}
+
+func createTestPaymentEvent() *common.PaymentEvent {
+	return &common.PaymentEvent{
+		EventID:   "test-123",
+		EventTime: "234",
+		Direction: "incoming",
+		Transaction: &common.TransactionType{
+			Amount:   100,
+			Currency: "USD",
+			Type:     "payment",
+		},
+		Payer: &common.PayerType{
+			AccountID: "acc-123",
+		},
+		Payee: &common.PayeeType{
+			MerchantID:   "merch-123",
+			MerchantName: "Test Merchant",
+			Country:      "US",
+		},
+		Context: &common.ContextData{
+			Channel:   "web",
+			DeviceID:  "device-123",
+			IP:        "192.168.1.1",
+			UserAgent: "Mozilla/5.0",
+		},
+	}
 }
 
 func Test_Integration_banByUserIDs(t *testing.T) {

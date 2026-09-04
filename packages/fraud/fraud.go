@@ -190,3 +190,4 @@ func (a *AntiFraud) Stop() error {
 
 	return nil
 }
+
