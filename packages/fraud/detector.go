@@ -9,6 +9,7 @@ import (
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
+	"github.com/redis/go-redis/v9"
 )
 
 type TwoPhaseBan struct {
@@ -23,6 +24,26 @@ type banTarget struct {
 	UserIDs  []string
 	Duration time.Duration
 }
+
+var commitBanScript = redis.NewScript(`
+	local status = redis.call("GET", KEYS[1])
+
+	if status ~= "PREPARED" then
+		return redis.error_reply("transaction is not prepared")
+	end
+
+	for i = 2, #KEYS, 2 do
+		local banKey = KEYS[i]
+		local tempKey = KEYS[i + 1]
+
+		redis.call("SET", banKey, "1", "PX", ARGV[1])
+		redis.call("DEL", tempKey)
+	end
+
+	redis.call("DEL", KEYS[1])
+
+	return "OK"
+`)
 
 func (a *AntiFraud) startDetector() {
 	timer := time.NewTimer(time.Second * 3)
@@ -221,24 +242,44 @@ func (t *TwoPhaseBan) validateUsers(ctx context.Context) bool {
 		return false
 	}
 
+	//хуйня
 	return true
 }
 
 func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
-	pipeline := t.redisDB.Client.Pipeline()
+	statusKey := fmt.Sprintf(
+		"ban:tx:%s:status",
+		t.txID,
+	)
+
+	keys := []string{statusKey}
 
 	for _, userID := range t.userIDs {
-		pipeline.Set(ctx, fmt.Sprintf("fraud:ban:%s", userID), "1", t.banDur)
+		banKey := fmt.Sprintf(
+			"fraud:ban:%s",
+			userID,
+		)
 
-		tempKey := fmt.Sprintf("ban:tx:%s:user:%s", t.txID, userID)
-		pipeline.Del(ctx, tempKey)
+		tempKey := fmt.Sprintf(
+			"ban:tx:%s:user:%s",
+			t.txID,
+			userID,
+		)
+
+		keys = append(keys, banKey, tempKey)
 	}
 
-	pipeline.Del(ctx, fmt.Sprintf("ban:tx:%s:status", t.txID))
+	ttlMs := t.banDur.Milliseconds()
 
-	_, err := pipeline.Exec(ctx)
+	_, err := commitBanScript.Run(
+		ctx,
+		t.redisDB.Client,
+		keys,
+		ttlMs,
+	).Result()
+
 	if err != nil {
-		return err
+		return fmt.Errorf("commit bans: %w", err)
 	}
 
 	return nil
