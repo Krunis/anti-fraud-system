@@ -10,6 +10,7 @@ import (
 
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/Krunis/anti-fraud-system/packages/interfaces/mocks"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redismock/v9"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
@@ -104,6 +105,159 @@ import (
 // 	}
 // }
 
+func Test_pollerToClickHouse(t *testing.T) {
+	tests := []struct {
+		name          string
+		setupMocks    func(*mocks.MockCH, *mocks.MockCHBatch)
+		sendEvent     bool
+		closeChannel  bool
+		cancelContext bool
+		waitTimer     bool
+	}{
+		{
+			name: "by ctx",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
+				gomock.InOrder(
+					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+					mockCHBatch.EXPECT().Send().Return(nil),
+					mockCHBatch.EXPECT().Close().Return(nil),
+				)
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+		},
+		{
+			name: "by timer",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
+				gomock.InOrder(
+					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+					mockCHBatch.EXPECT().Send().Return(nil),
+					mockCHBatch.EXPECT().Close().Return(nil),
+				)
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+			waitTimer:     true,
+		},
+		{
+			name:          "by timer empty",
+			setupMocks:    func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {},
+			sendEvent:     false,
+			closeChannel:  false,
+			cancelContext: true,
+			waitTimer:     true,
+		},
+		{
+			name: "preparebatch fail",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(nil, errors.New("prepare failed"))
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+		},
+		{
+			name: "appendbatch fail",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
+				gomock.InOrder(
+					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("append failed")),
+					mockCHBatch.EXPECT().Close().Return(nil),
+				)
+			},
+			sendEvent:     true,
+			closeChannel:  false,
+			cancelContext: true,
+		},
+		{
+			name: "!ok from chan in batch",
+			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
+				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
+				gomock.InOrder(
+					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+					mockCHBatch.EXPECT().Send().Return(nil),
+					mockCHBatch.EXPECT().Close().Return(nil),
+				)
+			},
+			sendEvent:     true,
+			closeChannel:  true,
+			cancelContext: false,
+		},
+		{
+			name:          "!ok from chan in nil batch",
+			setupMocks:    func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {},
+			sendEvent:     false,
+			closeChannel:  true,
+			cancelContext: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+
+			mockCH := mocks.NewMockCH(ctrl)
+			mockCHBatch := mocks.NewMockCHBatch(ctrl)
+
+			ctx, cancel := context.WithCancel(context.Background())
+
+			af := &AntiFraud{
+				clickHouse: mockCH,
+				paymentCh:  make(chan *common.PaymentEvent, 1000),
+				lifecycle: common.Lifecycle{
+					Ctx:    ctx,
+					Cancel: cancel,
+				},
+			}
+
+			tt.setupMocks(mockCH, mockCHBatch)
+
+			af.wg.Go(af.pollerToClickHouse)
+
+			if tt.sendEvent {
+				af.paymentCh <- createTestPaymentEvent()
+			}
+
+			if tt.closeChannel {
+				close(af.paymentCh)
+			}
+
+			if tt.waitTimer {
+				time.Sleep(time.Second * 6)
+			}
+
+			if tt.cancelContext {
+				time.Sleep(time.Millisecond * 100)
+				af.lifecycle.Cancel()
+			}
+
+			done := make(chan struct{})
+			go func() {
+				af.wg.Wait()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(1 * time.Second):
+				t.Fatal("pollerToClickHouse did not stop after context cancel")
+			}
+		})
+	}
+
+}
 func Test_fetchNextRequest(t *testing.T) {
 	t.Run("success with interval", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
@@ -240,7 +394,7 @@ func Test_fetchNextRequest(t *testing.T) {
 
 		require.Nil(t, req)
 		require.Contains(t, err.Error(), "some err")
-	})	
+	})
 
 }
 
@@ -704,148 +858,74 @@ func Test_validationSuccess(t *testing.T) {
 	require.NoError(t, mockRedis.ExpectationsWereMet())
 }
 
-func Test_commitBan(t *testing.T) {
-	t.Run("commit success", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
+func Test_Integration_commitBan_Prepared(t *testing.T) {
+	s := miniredis.RunT(t)
 
-		dbRedis, mockRedis := redismock.NewClientMock()
-		tpb := &TwoPhaseBan{
-			redisDB: &common.Redis{Client: dbRedis},
-			txID:    uuid.New().String(),
-			userIDs: []string{"alice", "bob"},
-			banDur:  time.Minute * 5,
-		}
-
-		for _, userID := range tpb.userIDs {
-			mockRedis.ExpectSet(fmt.Sprintf("fraud:ban:%s", userID), "1", tpb.banDur).SetVal("OK")
-			mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, userID)).SetVal(1)
-		}
-
-		mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:status", tpb.txID)).SetVal(1)
-
-		err := tpb.commitBan(context.Background())
-
-		require.NoError(t, mockRedis.ExpectationsWereMet())
-		require.NoError(t, err)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
 	})
 
-	t.Run("commit failed", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
+	tpb := &TwoPhaseBan{
+		redisDB: &common.Redis{
+			Client: rdb,
+		},
+		txID:    uuid.NewString(),
+		userIDs: []string{"alice", "bob"},
+		banDur:  time.Minute * 5,
+	}
 
-		dbRedis, mockRedis := redismock.NewClientMock()
-		tpb := &TwoPhaseBan{
-			redisDB: &common.Redis{Client: dbRedis},
-			txID:    uuid.New().String(),
-			userIDs: []string{"alice", "bob"},
-			banDur:  time.Minute * 5,
-		}
+	for _, userID := range tpb.userIDs {
+		s.Set(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, userID), "PENDING")
+	}
 
-		mockRedis.ExpectSet(fmt.Sprintf("fraud:ban:%s", tpb.userIDs[0]), "1", tpb.banDur).SetErr(errors.New("redis connection lost"))
+	statusKey := fmt.Sprintf("ban:tx:%s:status", tpb.txID)
 
-		err := tpb.commitBan(context.Background())
+	s.Set(statusKey, "PREPARED")
 
-		require.NoError(t, mockRedis.ExpectationsWereMet())
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "redis connection lost")
-	})
+	err := tpb.commitBan(context.Background())
+	require.NoError(t, err)
+
+	for _, userID := range tpb.userIDs {
+		res, _ := s.Get(fmt.Sprintf("fraud:ban:%s", userID))
+		require.Equal(t, "1", res)
+	}
+
+	for _, userID := range tpb.userIDs {
+		require.False(t, s.Exists(fmt.Sprintf("ban:tx:%s:user:%s", tpb.txID, userID)))
+	}
+
+	require.False(t, s.Exists(statusKey))
 }
-func Test_pollerToClickHouse(t *testing.T) {
-	tests := []struct {
-		name          string
-		setupMocks    func(*mocks.MockCH, *mocks.MockCHBatch)
-		sendEvent     bool
-		closeChannel  bool
-		cancelContext bool
-	}{
-		{
-			name: "success",
-			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
-				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
-				gomock.InOrder(
-					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
-						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
-					mockCHBatch.EXPECT().Send().Return(nil),
-					mockCHBatch.EXPECT().Close().Return(nil),
-				)
-			},
-			sendEvent:     true,
-			closeChannel:  false,
-			cancelContext: true,
-		},
-		{
-			name: "preparebatch fail",
-			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
-				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(nil, errors.New("prepare failed"))
-			},
-			sendEvent:     true,
-			closeChannel:  false,
-			cancelContext: true,
-		},
-		{
-			name: "appendbatch fail",
-			setupMocks: func(mockCH *mocks.MockCH, mockCHBatch *mocks.MockCHBatch) {
-				mockCH.EXPECT().PrepareBatch(gomock.Any(), gomock.Any()).Return(mockCHBatch, nil)
-				gomock.InOrder(
-					mockCHBatch.EXPECT().Append(gomock.Any(), gomock.Any(), gomock.Any(),
-						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-						gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(errors.New("append failed")),
-					mockCHBatch.EXPECT().Close().Return(nil),
-				)
-			},
-			sendEvent:     true,
-			closeChannel:  false,
-			cancelContext: true,
-		},
-	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
+func Test_Integration_commitBan_NotPrepared(t *testing.T) {
+    s := miniredis.RunT(t)
 
-			mockCH := mocks.NewMockCH(ctrl)
-			mockCHBatch := mocks.NewMockCHBatch(ctrl)
+    rdb := redis.NewClient(&redis.Options{
+        Addr: s.Addr(),
+    })
 
-			ctx, cancel := context.WithCancel(context.Background())
+    tpb := &TwoPhaseBan{
+        redisDB: &common.Redis{
+            Client: rdb,
+        },
+        txID:   uuid.NewString(),
+        userIDs: []string{"user-1"},
+        banDur:  time.Minute * 5,
+    }
 
-			af := &AntiFraud{
-				clickHouse: mockCH,
-				paymentCh:  make(chan *common.PaymentEvent, 1000),
-				lifecycle: common.Lifecycle{
-					Ctx:    ctx,
-					Cancel: cancel,
-				},
-			}
+    err := tpb.commitBan(context.Background())
 
-			tt.setupMocks(mockCH, mockCHBatch)
+    require.Error(t, err)
+    assert.ErrorContains(t, err, "commit bans")
+    require.ErrorContains(t, err, "transaction is not prepared")
 
-			af.wg.Go(af.pollerToClickHouse)
+    exists, err := rdb.Exists(
+        context.Background(),
+        fmt.Sprintf("fraud:ban:%s", tpb.userIDs[0]),
+    ).Result()
 
-			if tt.sendEvent {
-				af.paymentCh <- createTestPaymentEvent()
-			}
-
-			if tt.cancelContext {
-				time.Sleep(time.Millisecond * 100)
-				af.lifecycle.Cancel()
-			}
-
-			done := make(chan struct{})
-			go func() {
-				af.wg.Wait()
-				close(done)
-			}()
-
-			select {
-			case <-done:
-			case <-time.After(1 * time.Second):
-				t.Fatal("pollerToClickHouse did not stop after context cancel")
-			}
-		})
-	}
-
+    require.NoError(t, err)
+    require.Equal(t, int64(0), exists)
 }
 
 func createTestPaymentEvent() *common.PaymentEvent {

@@ -52,26 +52,31 @@ func (a *AntiFraud) pollerToClickHouse() {
 				log.Printf("Failed to send batch: %s", err)
 			}
 
-			if err := batch.Close(); err != nil {
-				log.Printf("Failed to close batch: %s", err)
+			if batch != nil {
+				if err := batch.Close(); err != nil {
+					log.Printf("Failed to close batch: %s", err)
+				}
+
+				batch = nil
 			}
 
-			batch = nil
 			count = 0
 
 			timer.Reset(time.Second * 5)
 		case payment, ok := <-a.paymentCh:
 			if !ok {
-				log.Println("While sending batch fail to get from channel")
+				log.Println("Failed to get from channel by timer")
 
 				if err := sendBatch(batch, count); err != nil {
 					log.Printf("Failed to send batch: %s", err)
 				}
 
-				if err := batch.Close(); err != nil {
-					log.Printf("Failed to close batch: %s", err)
+				if batch != nil {
+					if err := batch.Close(); err != nil {
+						log.Printf("Failed to close batch: %s", err)
+					}
 				}
-
+				
 				return
 			}
 

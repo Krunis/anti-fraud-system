@@ -275,9 +275,7 @@ func (t *TwoPhaseBan) commitBan(ctx context.Context) error {
 		ctx,
 		t.redisDB.Client,
 		keys,
-		ttlMs,
-	).Result()
-
+		ttlMs).Result()
 	if err != nil {
 		return fmt.Errorf("commit bans: %w", err)
 	}
