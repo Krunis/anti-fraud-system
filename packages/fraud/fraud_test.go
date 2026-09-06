@@ -3,15 +3,18 @@ package fraud
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/IBM/sarama"
 	"github.com/Krunis/anti-fraud-system/packages/common"
 	"github.com/Krunis/anti-fraud-system/packages/interfaces/mocks"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redismock/v9"
+	"github.com/golang/mock/gomock"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4"
 	"github.com/redis/go-redis/v9"
@@ -19,91 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"go.uber.org/mock/gomock"
 )
-
-// func Test_detectAndBan(t *testing.T) {
-// 	ctrl := gomock.NewController(t)
-// 	defer ctrl.Finish()
-
-// 	dbRedis, mockRedis := redismock.NewClientMock()
-
-// 	mockCH := mocks.NewMockCH(ctrl)
-// 	mockCHRows := mocks.NewMockCHRows(ctrl)
-
-// 	mockDB := mocks.NewMockDB(ctrl)
-// 	mockTx := mocks.NewMockTx(ctrl)
-// 	mockRow := mocks.NewMockRow(ctrl)
-// 	mockRows := mocks.NewMockRows(ctrl)
-
-// 	mockRow.EXPECT().Scan(gomock.Any(),
-// 		gomock.Any(),
-// 		gomock.Any(),
-// 		gomock.Any(),
-// 		gomock.Any()).DoAndReturn(func(dest ...any) error {
-// 		*dest[0].(*uuid.UUID) = uuid.MustParse("bfb4c2d1-2693-4c5e-9ea1-4639c5988829")
-// 		*dest[1].(*string) = "123"
-// 		*dest[2].(*string) = "321"
-// 		*dest[3].(*common.InteractionType) = common.GeneralInteraction
-// 		val := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
-// 		*dest[4].(**time.Time) = &val
-// 		return nil
-// 	})
-
-// 	gomock.InOrder(mockTx.EXPECT().QueryRow(
-// 		gomock.Any(),
-// 		gomock.Any(),
-// 		gomock.Any()).Return(mockRow),
-// 		mockTx.EXPECT().Commit(gomock.Any()).Return(nil),
-// 		mockTx.EXPECT().Rollback(gomock.Any()).Return(pgx.ErrTxClosed))
-
-// 	mockDB.EXPECT().Begin(gomock.Any()).Return(mockTx, nil)
-
-// 	gomock.InOrder(
-// 		mockCHRows.EXPECT().Next().Return(true),
-// 		mockCHRows.EXPECT().Scan(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-// 			func(dest ...any) error {
-// 				*dest[0].(*string) = "321"
-// 				*dest[1].(*int) = 4
-// 				*dest[2].(*int) = 3
-// 				return nil
-// 			}),
-// 		mockCHRows.EXPECT().Next().Return(false),
-// 		mockCHRows.EXPECT().Err().Return(nil),
-// 	)
-// 	mockCHRows.EXPECT().Close().Return(nil)
-// 	mockCH.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockCHRows, nil)
-
-// 	gomock.InOrder(
-// 		mockRows.EXPECT().Next().Return(true),
-// 		mockRows.EXPECT().Scan(gomock.Any()).DoAndReturn(func(dest ...any) error {
-// 			*dest[0].(*string) = "123"
-// 			return nil
-// 		}),
-// 		mockRows.EXPECT().Next().Return(false),
-// 		mockRows.EXPECT().Close(),
-// 	)
-
-// 	mockDB.EXPECT().Query(gomock.Any(), gomock.Any(), gomock.Any()).Return(mockRows, nil)
-
-// 	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:user:%s", "1", "123"), "PENDING", time.Minute*5).SetVal("OK")
-// 	mockRedis.ExpectSet(fmt.Sprintf("ban:tx:%s:status", "1"), "PREPARED", time.Minute*5).SetVal("OK")
-// 	mockRedis.ExpectSet(fmt.Sprintf("fraud:ban:%s", "123"), "1", time.Minute*15).SetVal("OK")
-// 	mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:user:%s", "1", "123")).SetVal(1)
-// 	mockRedis.ExpectDel(fmt.Sprintf("ban:tx:%s:status", "1")).SetVal(1)
-
-// 	af := &AntiFraud{postgresDB: mockDB, clickHouse: mockCH, redisDB: &common.Redis{Client: dbRedis}}
-
-// 	err := af.detectAndBan(context.Background())
-// 	if err != nil {
-// 		t.Fatalf("unexpected error: %v", err)
-// 	}
-
-// 	if err := mockRedis.ExpectationsWereMet(); err != nil {
-// 		t.Fatal(err)
-
-// 	}
-// }
 
 func Test_pollerToClickHouse(t *testing.T) {
 	tests := []struct {
@@ -261,7 +180,7 @@ func Test_pollerToClickHouse(t *testing.T) {
 func Test_fetchNextRequest(t *testing.T) {
 	t.Run("success with interval", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
-		mockDB := mocks.NewMockDB(ctrl)
+		mockDB := mocks.NewMockPostgresDB(ctrl)
 		mockTx := mocks.NewMockTx(ctrl)
 		mockRow := mocks.NewMockRow(ctrl)
 
@@ -292,7 +211,7 @@ func Test_fetchNextRequest(t *testing.T) {
 
 	t.Run("success w/o interval", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
-		mockDB := mocks.NewMockDB(ctrl)
+		mockDB := mocks.NewMockPostgresDB(ctrl)
 		mockTx := mocks.NewMockTx(ctrl)
 		mockRow := mocks.NewMockRow(ctrl)
 
@@ -322,7 +241,7 @@ func Test_fetchNextRequest(t *testing.T) {
 
 	t.Run("begintx fail", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
-		mockDB := mocks.NewMockDB(ctrl)
+		mockDB := mocks.NewMockPostgresDB(ctrl)
 
 		mockDB.EXPECT().Begin(gomock.Any()).Return(nil, errors.New("connect to DB failed"))
 
@@ -354,7 +273,7 @@ func Test_fetchNextRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
-			mockDB := mocks.NewMockDB(ctrl)
+			mockDB := mocks.NewMockPostgresDB(ctrl)
 			mockTx := mocks.NewMockTx(ctrl)
 			mockRow := mocks.NewMockRow(ctrl)
 
@@ -376,7 +295,7 @@ func Test_fetchNextRequest(t *testing.T) {
 
 	t.Run("commit fail", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
-		mockDB := mocks.NewMockDB(ctrl)
+		mockDB := mocks.NewMockPostgresDB(ctrl)
 		mockTx := mocks.NewMockTx(ctrl)
 		mockRow := mocks.NewMockRow(ctrl)
 
@@ -630,12 +549,7 @@ func setupCHRowsMock(ctrl *gomock.Controller, rows []generalScanRow, rowsErr err
 	calls = append(calls, mockCHRows.EXPECT().Next().Return(false))
 	calls = append(calls, mockCHRows.EXPECT().Err().Return(rowsErr))
 
-	anyCalls := make([]any, len(calls))
-	for i, c := range calls {
-		anyCalls[i] = c
-	}
-
-	gomock.InOrder(anyCalls...)
+	gomock.InOrder(calls...)
 
 	mockCHRows.EXPECT().Close().Return(nil)
 
@@ -993,11 +907,13 @@ func Test_Integration_banByUserIDs(t *testing.T) {
 		redisDB: &common.Redis{Client: rdb},
 	}
 
+	af.banner = af
+
 	userIDs := []string{"alice", "bob"}
 	banDuration := 10 * time.Minute
 	txID := uuid.New()
 
-	err = af.banByUserIDs(ctx, userIDs, banDuration, txID)
+	err = af.banner.BanByUserIDs(ctx, userIDs, banDuration, txID)
 	require.NoError(t, err)
 
 	for _, userID := range userIDs {
@@ -1023,4 +939,52 @@ func Test_Integration_banByUserIDs(t *testing.T) {
 	exists, err := rdb.Exists(ctx, statusKey).Result()
 	assert.NoError(t, err)
 	assert.Equal(t, int64(0), exists)
+}
+
+func Test_handleConsume(t *testing.T){
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockBanner := mocks.NewMockBanner(ctrl)
+
+	dbRedis, mockRedis := redismock.NewClientMock()
+
+	af := AntiFraud{
+		banner : mockBanner,
+		redisDB: &common.Redis{Client: dbRedis},
+		paymentCh: make(chan *common.PaymentEvent, 1000),
+	}
+
+	ctx := context.Background()
+	payment := createTestPaymentEvent()
+
+	mockRedis.ExpectIncr(fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID)).SetVal(1)
+	mockRedis.ExpectExpire(fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID), time.Second*30).SetVal(true)
+
+	mockRedis.ExpectSAdd(fmt.Sprintf("fraud:%s%s", prefixPaymentCountries, payment.Payer.AccountID), payment.Context.IP).SetVal(1)
+	mockRedis.ExpectExpire(fmt.Sprintf("fraud:%s%s", prefixPaymentCountries, payment.Payer.AccountID), time.Minute * 10).SetVal(true)
+
+	mockRedis.ExpectSAdd(fmt.Sprintf("fraud:%s%s", prefixPaymentDevices, payment.Payer.AccountID), payment.Context.DeviceID).SetVal(1)
+	mockRedis.ExpectExpire(fmt.Sprintf("fraud:%s%s", prefixPaymentDevices, payment.Payer.AccountID), time.Minute*5).SetVal(true)
+
+	mockRedis.ExpectLPush(fmt.Sprintf("fraud:%s%s", prefixPaymentAmounts, payment.Payer.AccountID), payment.Transaction.Amount).SetVal(1)
+	mockRedis.ExpectExpire(fmt.Sprintf("fraud:%s%s", prefixPaymentAmounts, payment.Payer.AccountID), time.Minute*5).SetVal(true)
+
+	mockRedis.ExpectGet(fmt.Sprintf("fraud:%s%s", prefixFailedLogins, payment.Payer.AccountID)).SetVal("6")
+
+	mockRedis.ExpectSMembers(fmt.Sprintf("fraud:%s%s", prefixPaymentCountries, payment.Payer.AccountID)).SetVal([]string{"a", "b", "c", "d"})
+
+	mockRedis.ExpectSMembers(fmt.Sprintf("fraud:%s%s", prefixPaymentDevices, payment.Payer.AccountID)).SetVal([]string{"a", "b", "c", "d"})
+
+	mockRedis.ExpectLRange(fmt.Sprintf("fraud:%s%s", prefixPaymentAmounts, payment.Payer.AccountID), 0, -1).SetVal([]string{"5000000", "5000000", "5000000", "5000000"})
+
+	mockBanner.EXPECT().BanByUserIDs(ctx, gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+
+	value, err := json.Marshal(payment)
+	require.NoError(t, err)
+
+	err = af.handleConsume(ctx, &sarama.ConsumerMessage{Value: value})
+
+	require.NoError(t, mockRedis.ExpectationsWereMet())
+	require.NoError(t, err)
 }

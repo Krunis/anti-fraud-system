@@ -2,12 +2,18 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
-"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/google/uuid"
 	"github.com/jackc/pgconn"
 )
 
 //go:generate mockgen -source=interfaces.go -destination=mocks/db_mock.go -package=mocks
+
+type Banner interface{
+	BanByUserIDs(ctx context.Context, userIDs []string, duration time.Duration, txID uuid.UUID) error
+}
 
 type PostgresDB interface {
 	Begin(ctx context.Context) (Tx, error)

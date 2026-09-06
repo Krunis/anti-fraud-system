@@ -92,7 +92,7 @@ func (a *AntiFraud) detectAndBan(ctx context.Context) error {
 	targets := banTargets(detReq, checkResult)
 
 	for _, target := range targets {
-		if err := a.banByUserIDs(ctx, target.UserIDs, target.Duration, uuid.New()); err != nil {
+		if err := a.banner.BanByUserIDs(ctx, target.UserIDs, target.Duration, uuid.New()); err != nil {
 			log.Printf("failed to ban users %v: %s", target.UserIDs, err)
 			return err
 		}
@@ -176,7 +176,7 @@ func banTargets(detReq *common.DetectRequest, checkResult *FraudCheckResult) []b
 	return []banTarget{{UserIDs: toBan, Duration: 15 * time.Minute}} 
 }
 
-func (a *AntiFraud) banByUserIDs(ctx context.Context, userIDs []string, duration time.Duration, txID uuid.UUID) error {
+func (a *AntiFraud) BanByUserIDs(ctx context.Context, userIDs []string, duration time.Duration, txID uuid.UUID) error {
 	t := &TwoPhaseBan{
 		redisDB: a.redisDB,
 		txID:    txID.String(),

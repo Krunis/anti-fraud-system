@@ -69,30 +69,9 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 				return nil
 			}
 
-			var redisScores int
-
-			payment := &common.PaymentEvent{}
-
-			json.Unmarshal(msg.Value, &payment)
-
-			if err := a.refreshInRedis(session.Context(), payment); err != nil {
+			if err := a.handleConsume(session.Context(), msg); err != nil {
 				return err
 			}
-
-			paymentStats, err := a.getStatsFromRedis(session.Context(), payment)
-			if err != nil {
-				return err
-			}
-
-			considerScores(paymentStats, &redisScores)
-
-			if redisScores > 120 {
-				if err := a.banByUserIDs(session.Context(), []string{payment.Payer.AccountID}, 15, uuid.New()); err != nil {
-					return err
-				}
-			}
-
-			a.paymentCh <- payment
 
 			session.MarkMessage(msg, "")
 		case <-session.Context().Done():
@@ -101,6 +80,35 @@ func (a *AntiFraud) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 			return nil
 		}
 	}
+}
+
+func (a *AntiFraud) handleConsume(ctx context.Context, msg *sarama.ConsumerMessage) error{
+	var redisScores int
+
+	payment := &common.PaymentEvent{}
+
+	json.Unmarshal(msg.Value, &payment)
+
+	if err := a.refreshInRedis(ctx, payment); err != nil {
+		return err
+	}
+
+	paymentStats, err := a.getStatsFromRedis(ctx, payment)
+	if err != nil {
+		return err
+	}
+
+	considerScores(paymentStats, &redisScores)
+
+	if redisScores > 120 {
+		if err := a.banner.BanByUserIDs(ctx, []string{payment.Payer.AccountID}, 15, uuid.New()); err != nil {
+			return err
+		}
+	}
+
+	a.paymentCh <- payment
+
+	return nil
 }
 
 func considerScores(paymentStats *PaymentStats, redisScores *int) {
@@ -120,6 +128,5 @@ func considerScores(paymentStats *PaymentStats, redisScores *int) {
 	}
 
 	*redisScores += (int(sumAmounts) % 1000000) * 15
-
 
 }

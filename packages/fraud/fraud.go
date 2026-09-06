@@ -32,6 +32,8 @@ type PaymentStats struct {
 type AntiFraud struct {
 	consumer *Consumer
 
+	banner interfaces.Banner
+
 	redisDB *common.Redis
 
 	postgresDB interfaces.PostgresDB
@@ -49,16 +51,22 @@ type AntiFraud struct {
 func NewAntiFraud(postgresDB interfaces.PostgresDB, clickhouse interfaces.CH, redisDB *common.Redis, consumer *Consumer) *AntiFraud {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &AntiFraud{
-		postgresDB: postgresDB,
-		clickHouse: clickhouse,
-		redisDB: redisDB,
-		paymentCh: make(chan *common.PaymentEvent, 1000),
-		lifecycle: common.Lifecycle{
-			Ctx:    ctx,
-			Cancel: cancel,
-		},
-	}
+	af := &AntiFraud{
+        postgresDB: postgresDB,
+        clickHouse: clickhouse,
+        redisDB: redisDB,
+        paymentCh: make(chan *common.PaymentEvent, 1000),
+        lifecycle: common.Lifecycle{
+            Ctx: ctx,
+            Cancel: cancel,
+        },
+    }
+
+	var _ interfaces.Banner = (*AntiFraud)(nil)
+
+	af.banner = af
+
+	return af
 }
 
 func (a *AntiFraud) Start(databaseCH, tableCH, userCH, dbConnectionString string) error {
